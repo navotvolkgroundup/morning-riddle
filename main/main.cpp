@@ -11,6 +11,9 @@
 
 #include <cstdio>
 
+#include "esp_log.h"
+#include "esp_timer.h"
+
 extern "C" {
 #include "daily_layout.h"
 #include "schedule.h"
@@ -25,20 +28,25 @@ extern "C" void app_main(void)
 
     const int w = M5.Display.width();
     const int h = M5.Display.height();
-    std::printf("[%s] panel %dx%d, board id %d\n", TAG, w, h, (int)M5.getBoard());
+    // ESP_LOG, not printf. With CONFIG_ESP_CONSOLE_UART_CUSTOM the primary
+    // console is the physical UART on IO5/IO4; only the logging macros are
+    // mirrored to the secondary USB Serial/JTAG console. printf here goes out
+    // pins nothing is attached to, which presents as a board that boots and
+    // says nothing at all.
+    ESP_LOGI(TAG, "panel %dx%d, board id %d", w, h, (int)M5.getBoard());
 
     // The core, exercised rather than merely linked. schedule_weekday is pure
     // arithmetic pinned against real dates in the host tests, so a wrong answer
     // here means the toolchain is miscompiling it, not that the logic drifted.
     // 20692 is 2026-08-27, a Thursday, which is 4 with Sunday as 0.
     const int wd = schedule_weekday(20692);
-    std::printf("[%s] core linked: schedule_weekday(20692) = %d (expect 4)\n", TAG, wd);
+    ESP_LOGI(TAG, "core linked: schedule_weekday(20692) = %d (expect 4)", wd);
 
     daily_layout_t L;
     daily_flags_t f = { false, false, false, false };
     daily_layout(&f, &L);
-    std::printf("[%s] daily_layout riddle_top=%d (PORTRAIT constants, wrong for "
-                "this panel -- geometry is the next task)\n", TAG, L.riddle_top);
+    ESP_LOGI(TAG, "daily_layout riddle_top=%d (PORTRAIT constants, wrong for "
+                  "this panel -- geometry is the next task)", L.riddle_top);
 
     M5.Display.setRotation(0);
     M5.Display.fillScreen(TFT_WHITE);
@@ -76,5 +84,5 @@ extern "C" void app_main(void)
     // The number that decides the interaction model. The design assumes a full
     // refresh is far too slow to answer a button press, and moved the reveal to
     // 16:00 because of it. Measure it rather than trusting the datasheet.
-    std::printf("[%s] FULL REFRESH TOOK %lld ms\n", TAG, (long long)ms);
+    ESP_LOGI(TAG, "FULL REFRESH TOOK %lld ms", (long long)ms);
 }

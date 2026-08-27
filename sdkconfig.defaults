@@ -24,13 +24,20 @@ CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
 CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
 
-# ===== Console -- HARDWARE =====
-# UART on IO5/IO4, mirrored to USB Serial/JTAG so a cabled board logs.
-CONFIG_ESP_CONSOLE_UART_CUSTOM=y
-CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y
-CONFIG_ESP_CONSOLE_UART_TX_GPIO=5
-CONFIG_ESP_CONSOLE_UART_RX_GPIO=4
-CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+# ===== Console =====
+# PRIMARY console on USB Serial/JTAG, not the UART.
+#
+# The reference demo puts the primary console on the physical UART at IO5/IO4
+# and leaves USB as the secondary. That is right if you have a probe on those
+# pins; we do not. Everything here is developed and diagnosed over the USB
+# cable, so the console belongs there.
+#
+# Honesty about how this setting got chosen: it was changed while chasing a
+# board that produced no serial output, on the theory that the secondary
+# console was not delivering. That theory was WRONG -- the board was sitting in
+# download mode and running no application at all. The setting is still the
+# right one for this workflow, but it fixed nothing.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
 # ===== System =====
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_160=y
