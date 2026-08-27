@@ -651,30 +651,39 @@ static int test_daily_layout(void)
         daily_layout_t L;
         daily_layout(&f, &L);
 
-        // Absent means absent: no coordinate, and no space consumed.
+        // Absent means absent, and takes no space.
         CHECK(f.schedule == (L.schedule_y != DL_ABSENT));
         CHECK(f.weather  == (L.weather_y  != DL_ABSENT));
-        CHECK(f.callout  == (L.callout_y  != DL_ABSENT));
         CHECK(f.birthday == (L.birthday_y != DL_ABSENT));
+        // The callout is the exception: requested is not the same as placed,
+        // because a birthday suppresses it.
+        CHECK((f.callout && !f.birthday) == (L.callout_y != DL_ABSENT));
 
-        // Nothing may start above the header rule.
+        // Nothing starts above the header rule, and nothing runs off the page.
         if (L.schedule_y != DL_ABSENT) CHECK(L.schedule_y > DL_HDR_RULE_Y);
         if (L.weather_y  != DL_ABSENT) CHECK(L.weather_y  > DL_HDR_RULE_Y);
         if (L.birthday_y != DL_ABSENT) CHECK(L.birthday_y > DL_HDR_RULE_Y);
         if (L.callout_y  != DL_ABSENT) CHECK(L.callout_y  > DL_HDR_RULE_Y);
+        CHECK(L.riddle_top + L.riddle_h == DL_BODY_BOTTOM);
+        CHECK(L.riddle_top < DL_CANVAS_H);
 
-        // Fixed order, no overlap: schedule, weather, birthday, callout, riddle.
-        if (L.schedule_y != DL_ABSENT && L.weather_y != DL_ABSENT)
-            CHECK(L.weather_y >= L.schedule_y + DL_LINE_H);
-        if (L.birthday_y != DL_ABSENT && L.callout_y != DL_ABSENT)
-            CHECK(L.callout_y > L.birthday_y);
+        // THE BAND IS HORIZONTAL: schedule and weather share one line, so they
+        // have the same y and differ in x. On the portrait board they were
+        // stacked and this assertion would have been exactly wrong -- which is
+        // the point of pinning it.
+        if (L.schedule_y != DL_ABSENT && L.weather_y != DL_ABSENT) {
+            CHECK(L.schedule_y == L.weather_y);
+            CHECK(L.weather_x > L.schedule_x);
+        }
+        if (L.weather_x != DL_ABSENT) CHECK(L.weather_x >= DL_BAND_SPLIT_X);
+        if (L.schedule_x != DL_ABSENT) CHECK(L.schedule_x < DL_BAND_SPLIT_X);
+
+        // Order and non-overlap: band, then birthday or callout, then riddle.
         if (L.callout_y != DL_ABSENT)
             CHECK(L.riddle_top >= L.callout_y + DL_LINE_H);
-        if (L.birthday_y != DL_ABSENT && L.callout_y == DL_ABSENT)
-            CHECK(L.riddle_top > L.birthday_y);
+        if (L.birthday_y != DL_ABSENT)
+            CHECK(L.riddle_top >= L.birthday_y + DL_LINE_H);
 
-        // The band draws a border, so it exists only when it has contents --
-        // an empty box on a weekend morning reads as a fault, not a design.
         if (!f.schedule && !f.weather) {
             CHECK(L.band_h == 0);
         } else {
@@ -688,39 +697,49 @@ static int test_daily_layout(void)
                 CHECK(L.weather_y + DL_LINE_H <= L.band_y + L.band_h);
             }
             CHECK(L.riddle_top >= L.band_y + L.band_h);
-            // Birthday and callout must clear the band too. Checking only
-            // riddle_top is not enough: the approach-C floor sits below any
-            // band this layout can produce, so it would satisfy that check
-            // even with the band's height ignored entirely -- which is
-            // exactly what a mutation deleting the band advance does, and it
-            // drops the banner on top of the timetable.
+            // Everything below the band clears it. Checking only riddle_top is
+            // not enough -- that was how a band-overlap mutation survived on
+            // the portrait board.
             if (L.birthday_y != DL_ABSENT)
                 CHECK(L.birthday_y >= L.band_y + L.band_h);
             if (L.callout_y != DL_ABSENT)
                 CHECK(L.callout_y >= L.band_y + L.band_h);
         }
 
-        // The riddle keeps its floor whatever is stacked above it.
+        // The floor. On this panel it is tight rather than comfortable: the
+        // worst case leaves 220 against a 200 minimum, so a fifth zone or a
+        // taller banner fails HERE rather than as a clipped riddle nobody
+        // notices for a week.
         CHECK(L.riddle_h >= DL_RIDDLE_MIN_H);
-        CHECK(L.riddle_top + L.riddle_h == DL_BODY_BOTTOM);
 
-        // Direction: every page sits between the empty one and the full one.
-        // Without this the loop would pass just as happily if a zone moved the
-        // riddle UP.
+        // Direction: every page sits between the empty one and the fullest.
         CHECK(L.riddle_top >= Le.riddle_top);
         CHECK(L.riddle_top <= Lf.riddle_top);
     }
 
-    CHECK(Le.riddle_top <= Lf.riddle_top);
-    CHECK(Le.riddle_h   >= Lf.riddle_h);
+    CHECK(Le.riddle_top < Lf.riddle_top);
+    CHECK(Le.riddle_h   > Lf.riddle_h);
     CHECK(Le.band_h == 0);
+    CHECK(Le.riddle_h == DL_BODY_BOTTOM - (DL_HDR_RULE_Y + DL_ZONE_GAP));
 
-    // Approach C: the riddle sits in the lower two-thirds however few zones
-    // are present. Without the floor an empty page starts it around y=46.
-    CHECK(Le.riddle_top == DL_RIDDLE_TOP_MIN);
+    // A birthday costs no more than a callout would have, because it replaces
+    // it. Without the suppression rule the two would stack and the worst case
+    // would breach the floor -- this pins the rule, not just its side effect.
+    daily_flags_t bday_only = { true, true, false, true };
+    daily_flags_t both      = { true, true, true,  true };
+    daily_layout_t Lb, Lt;
+    daily_layout(&bday_only, &Lb);
+    daily_layout(&both, &Lt);
+    CHECK(Lb.riddle_top == Lt.riddle_top);
+    CHECK(Lt.callout_y == DL_ABSENT);
 
-    // NULL flags behave as the empty page: the renderer calls this before
-    // kids.json or the weather cache exist.
+    // One zone must strictly push the riddle down.
+    daily_flags_t sched_only = { true, false, false, false };
+    daily_layout_t Ls;
+    daily_layout(&sched_only, &Ls);
+    CHECK(Ls.riddle_top > Le.riddle_top);
+
+    // NULL flags behave as the empty page.
     daily_layout_t Ln;
     daily_layout(NULL, &Ln);
     CHECK(Ln.riddle_top == Le.riddle_top);

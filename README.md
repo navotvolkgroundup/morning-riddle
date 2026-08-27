@@ -66,13 +66,35 @@ This is the payoff from keeping the decision core IDF-free and board-free on
 the old board. It was argued for on testability grounds; it turned out to be
 what made a hardware change cheap.
 
+## Layout: 600×400 landscape
+
+Not a constant swap. The panel is 120px wider and **half the height**, so
+vertical space became the scarce resource and the portrait arrangement stopped
+fitting — a straight port left the riddle 132px against its own 300 minimum.
+
+Three changes came out of that:
+
+- **The utility band is horizontal.** Schedule left, weather right of
+  `DL_BAND_SPLIT_X`, sharing one line. Stacked they cost 82 of 400.
+- **A birthday suppresses the callout.** Both address the reader by name, and
+  together they cost 110px — a quarter of everything below the header. The
+  banner already makes the page about that child.
+- **No approach-C floor.** The portrait design pinned the riddle into the lower
+  two-thirds so it sat at a child's eye level and the utility band at an
+  adult's. That needs 800px to separate. At 400 the whole page is one glance,
+  and the mounting-height question that governed `DL_RIDDLE_TOP_MIN` does not
+  arise here.
+
+The riddle floor is `DL_RIDDLE_MIN_H 200` and the worst case lands at **220** —
+tight, not comfortable. A fifth zone or a taller banner fails the tests rather
+than shipping as a clipped riddle.
+
+Five mutations confirm the tests have teeth: band taking no space, the band
+stacked as it was in portrait, the birthday suppression removed, the banner
+back to two lines, and weather placed on the wrong side of the split.
+
 ## What is NOT done yet
 
-- **Layout geometry is still portrait.** `daily_layout.h` carries the old
-  480×800 constants — `DL_CANVAS_H 800`, `DL_RIDDLE_TOP_MIN 265`. The panel is
-  600×400 landscape. The reflow *logic* and its sixteen-permutation tests are
-  correct and stay; the numbers are wrong and the zone arrangement needs
-  rethinking for a landscape page.
 - **No board code at all.** No display, RTC, buttons, power, or `main`.
 - **Two cross-artifact checks were dropped, deliberately, not silently.** The
   Waveshare tree had `make icons` (every `wmo_icon()` name has a matching
