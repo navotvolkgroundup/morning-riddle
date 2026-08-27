@@ -1,0 +1,8 @@
+# Name,   Type, SubType, Offset,   Size,     Flags
+# No FAT partition: config and content come from the microSD card and the
+# network, not from internal flash. NVS is 32K rather than the usual 24K
+# because the schedule blob alone is 7 x 128 bytes and shares space with the
+# riddle batch state, the wake ring, kids and the weather cache.
+nvs,      data, nvs,     0x9000,   0x8000,
+phy_init, data, phy,     0x11000,  0x1000,
+factory,  app,  factory, 0x20000,  0xF00000,

@@ -1,0 +1,6 @@
+build/
+build-host/
+sdkconfig
+sdkconfig.old
+dependencies.lock
+managed_components/

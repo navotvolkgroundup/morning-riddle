@@ -1,0 +1,25 @@
+idf_component_register(
+    SRCS
+        "main.cpp"
+        "core/riddle_decide.c"
+        "core/wake_log.c"
+        "core/kids.c"
+        "core/weather.c"
+        "core/schedule.c"
+        "core/sd_json.c"
+        "core/daily_layout.c"
+    INCLUDE_DIRS
+        "."
+        "core"
+    REQUIRES
+        M5Unified
+        M5GFX
+        nvs_flash
+        esp_wifi
+        esp_netif
+        esp_event
+        esp_http_client
+        esp-tls
+        json
+        fatfs
+)
