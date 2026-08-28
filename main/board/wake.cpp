@@ -29,6 +29,19 @@ int g_button = -1;
 
 wake_cause wake_why()
 {
+    // RELEASE THE SLEEP HOLDS FIRST.
+    //
+    // wake_sleep() latches these pins so they do not float through deep sleep,
+    // and the latch SURVIVES the wake -- it is not cleared by reset. Left held,
+    // every button reads its frozen sleep-time level for the rest of the boot,
+    // so the buttons appear stuck and nothing responds. Releasing here means it
+    // happens on every path, including the ones that return early.
+    gpio_deep_sleep_hold_dis();
+    for (int pin : { WAKE_PIN_RTC_INT, WAKE_PIN_BTN_A, WAKE_PIN_BTN_B,
+                     WAKE_PIN_BTN_C }) {
+        gpio_hold_dis((gpio_num_t)pin);
+    }
+
     const esp_sleep_wakeup_cause_t c = esp_sleep_get_wakeup_cause();
     if (c != ESP_SLEEP_WAKEUP_EXT1) {
         return (c == ESP_SLEEP_WAKEUP_UNDEFINED) ? wake_cause::cold
@@ -101,6 +114,37 @@ bool wake_arm_next(time_t now, int *is_morning)
 void wake_clear_alarm()
 {
     if (M5.Rtc.isEnabled()) M5.Rtc.clearIRQ();
+}
+
+bool wake_usb_present()
+{
+    // ~4.0V is comfortably above a charged cell and below real VBUS, so it
+    // separates the two without needing the PMIC's status bits.
+    const int16_t mv = M5.Power.getVBUSVoltage();
+    return mv > 4000;
+}
+
+bool wake_button_held()
+{
+    for (int pin : { WAKE_PIN_BTN_A, WAKE_PIN_BTN_B, WAKE_PIN_BTN_C }) {
+        gpio_set_direction((gpio_num_t)pin, GPIO_MODE_INPUT);
+        gpio_pullup_en((gpio_num_t)pin);
+        if (gpio_get_level((gpio_num_t)pin) == 0) return true;   // active low
+    }
+    return false;
+}
+
+bool wake_sleep_if_safe()
+{
+    if (wake_usb_present()) {
+        ESP_LOGW(TAG, "USB attached; staying awake so the board stays flashable");
+        return false;
+    }
+    if (wake_button_held()) {
+        ESP_LOGW(TAG, "button held; staying awake (escape hatch)");
+        return false;
+    }
+    wake_sleep();
 }
 
 void wake_sleep()

@@ -50,7 +50,13 @@ extern "C" void app_main(void)
     // display is never initialised and nothing draws -- silently, which is the
     // symptom we have.
     cfg.fallback_board = m5::board_t::board_M5PaperColor;
+    // The page fills the screen itself, so M5's own clear is a wasted
+    // full-panel waveform. Measuring whether it is a big part of the 52.7s.
+    cfg.clear_display = false;
+    const int64_t t_begin = esp_timer_get_time();
     M5.begin(cfg);
+    ESP_LOGW(TAG, "M5.begin took %lld ms (clear_display=false)",
+             (long long)((esp_timer_get_time() - t_begin) / 1000));
     ESP_LOGW(TAG, "M5.begin returned, board=%d", (int)M5.getBoard());
 
     const int w = M5.Display.width();
@@ -128,11 +134,9 @@ extern "C" void app_main(void)
     if (!wake_arm_next(time(nullptr), &morning))
         ESP_LOGE(TAG, "ALARM DID NOT ARM -- this board will not wake on its own");
 
-    // DEVELOPMENT GRACE PERIOD. A board that deep-sleeps the instant it
-    // finishes drawing is miserable to work on: every reflash needs the
-    // download-mode dance first. Thirty seconds is enough to catch it. Remove
-    // this when the interaction is finished and the device goes on a wall.
-    ESP_LOGW(TAG, "sleeping in 30s -- flash now if you want to");
-    vTaskDelay(pdMS_TO_TICKS(30000));
-    wake_sleep();
+    // No grace period any more: wake_sleep_if_safe() refuses outright while
+    // USB is attached, which is a rule rather than a race. A timed window was
+    // the wrong shape -- it made every reflash a stopwatch exercise.
+    if (!wake_sleep_if_safe())
+        ESP_LOGW(TAG, "staying awake; the page is drawn and the alarm is armed");
 }

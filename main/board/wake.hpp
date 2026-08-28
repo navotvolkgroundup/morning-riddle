@@ -67,7 +67,27 @@ bool wake_arm_next(time_t now, int *is_morning);
 // board wakes again immediately, forever.
 void wake_clear_alarm();
 
-// Deep sleep until the RTC alarm or a button. Does not return.
+// True when USB is supplying power. Requires M5.begin() (reads VBUS via the
+// PMIC), so it is only callable on the page path.
+bool wake_usb_present();
+
+// True if any of the three buttons is held right now. Safe before M5.begin().
+bool wake_button_held();
+
+// Sleeps only when it is safe to, and returns false when it refuses.
+//
+// A CABLED BOARD MUST STAY REACHABLE. Deep sleep powers down USB-JTAG, so a
+// board that sleeps on USB vanishes from the bus and can only be recovered by
+// unplugging, replugging and pressing power -- four physical actions per
+// flash. The Waveshare build had exactly this rule in
+// sched_power_off_if_safe(); the port dropped it and immediately paid for it.
+//
+// Holding a button at boot also refuses, as a deliberate escape hatch for a
+// battery-powered board that would otherwise be asleep whenever you reach it.
+bool wake_sleep_if_safe();
+
+// Deep sleep until the RTC alarm or a button. Does not return. Prefer
+// wake_sleep_if_safe() unless you genuinely mean to sleep regardless.
 [[noreturn]] void wake_sleep();
 
 #endif // BOARD_WAKE_HPP
