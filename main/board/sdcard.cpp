@@ -1,5 +1,8 @@
 #include "sdcard.hpp"
 
+#include <M5Unified.h>
+
+#include "driver/sdmmc_host.h"
 #include "driver/sdspi_host.h"
 #include "driver/spi_common.h"
 #include "esp_log.h"
@@ -21,6 +24,26 @@ constexpr int kPinCs   = 47;
 
 sdmmc_card_t *g_card = nullptr;
 bool g_bus_ready = false;
+
+// The card's power rail is switched by the PM1, not by the ESP32: register
+// 0x11 bit 3, set up as an output by M5Unified's Power init for this board.
+//
+// That means a card that has wedged -- pulled while powered, or left in a bad
+// state after a half-finished transaction -- can be POWER CYCLED in software.
+// Nothing else in the SPI layer can recover such a card: it simply stops
+// answering, and every retry gets the same silence.
+constexpr uint8_t kPm1Addr    = 0x6E;
+constexpr uint8_t kPm1GpioOut = 0x11;
+constexpr uint8_t kTfPowerBit = 1 << 3;
+
+void tf_power_cycle()
+{
+    ESP_LOGI(TAG, "power-cycling the card via the PM1");
+    M5.In_I2C.bitOff(kPm1Addr, kPm1GpioOut, kTfPowerBit, 100000);
+    vTaskDelay(pdMS_TO_TICKS(250));      // let the rail actually fall
+    M5.In_I2C.bitOn(kPm1Addr, kPm1GpioOut, kTfPowerBit, 100000);
+    vTaskDelay(pdMS_TO_TICKS(250));      // and the card finish its own reset
+}
 }  // namespace
 
 bool sd_mount()
@@ -56,6 +79,17 @@ bool sd_mount()
     // robustness that is not measured is just a change.
     host.max_freq_khz = SDMMC_FREQ_DEFAULT;
 
+    // A GENEROUS COMMAND TIMEOUT. The failure here is not "no card": it is
+    // sdmmc_init_sd_ssr timing out, and that is a LATE step -- the card has
+    // already answered CMD0, CMD8 and ACMD41 and handed over its CID and CSD
+    // to get that far. An absent card fails long before this.
+    //
+    // So one command (ACMD13, reading the SD Status Register) is slow to
+    // answer, and the default timeout gives up on it. Cards vary enormously
+    // here; the cost of waiting longer is milliseconds on a path that runs
+    // twice a day.
+    host.command_timeout_ms = 3000;
+
     sdspi_device_config_t slot = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot.gpio_cs = (gpio_num_t)kPinCs;
     slot.host_id = SPI3_HOST;
@@ -76,8 +110,44 @@ bool sd_mount()
     for (int attempt = 1; attempt <= 3; attempt++) {
         err = esp_vfs_fat_sdspi_mount(SD_MOUNT_POINT, &host, &slot, &mcfg, &g_card);
         if (err == ESP_OK) break;
-        ESP_LOGD(TAG, "mount attempt %d: %s", attempt, esp_err_to_name(err));
-        vTaskDelay(pdMS_TO_TICKS(120));
+        ESP_LOGW(TAG, "mount attempt %d: %s", attempt, esp_err_to_name(err));
+
+        // Cut the card's power before trying again. A retry at the same power
+        // state just repeats the same conversation with a card that is not
+        // listening; taking the rail down is what makes the next attempt
+        // genuinely different.
+        tf_power_cycle();
+    }
+
+    // SDMMC FALLBACK.
+    //
+    // SPI failed at sdmmc_init_sd_ssr, which is the FIRST data-block transfer
+    // in the init sequence -- commands and responses work, a 512-byte read
+    // does not. That points at the data path rather than the card.
+    //
+    // The S3 can drive these same pins through its SDMMC peripheral, which is
+    // a completely different data path: CLK, CMD and D0 instead of SCLK, MOSI
+    // and MISO, with D3 held high in place of chip select. If SPI cannot read
+    // a block and SDMMC can, that is worth knowing and worth using.
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "SPI mode failed; trying SDMMC 1-line on the same pins");
+        if (g_bus_ready) { spi_bus_free(SPI3_HOST); g_bus_ready = false; }
+
+        sdmmc_host_t mhost = SDMMC_HOST_DEFAULT();
+        mhost.flags        = SDMMC_HOST_FLAG_1BIT;
+        mhost.max_freq_khz = SDMMC_FREQ_PROBING;
+        mhost.command_timeout_ms = 3000;
+
+        sdmmc_slot_config_t mslot = SDMMC_SLOT_CONFIG_DEFAULT();
+        mslot.width = 1;
+        mslot.clk   = (gpio_num_t)kPinClk;    // G15
+        mslot.cmd   = (gpio_num_t)kPinMosi;   // G13 doubles as CMD
+        mslot.d0    = (gpio_num_t)kPinMiso;   // G14 doubles as D0
+        mslot.flags = SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+
+        err = esp_vfs_fat_sdmmc_mount(SD_MOUNT_POINT, &mhost, &mslot, &mcfg, &g_card);
+        if (err == ESP_OK)
+            ESP_LOGW(TAG, "SDMMC worked where SPI did not");
     }
 
     if (err != ESP_OK) {
@@ -85,8 +155,9 @@ bool sd_mount()
         // slot looks like AND what a badly seated or failing card looks like,
         // so say both rather than asserting one.
         if (err == ESP_ERR_TIMEOUT)
-            ESP_LOGW(TAG, "no answer from the card: slot empty, card not "
-                          "seated, or card failing (%s)", esp_err_to_name(err));
+            ESP_LOGW(TAG, "the card stopped answering partway through init "
+                          "(%s) -- present but not completing, not absent",
+                     esp_err_to_name(err));
         else if (err == ESP_FAIL)
             ESP_LOGW(TAG, "card answered but has no readable filesystem -- "
                           "format it as FAT32 (MS-DOS), not exFAT");
