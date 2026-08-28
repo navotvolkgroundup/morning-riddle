@@ -29,6 +29,7 @@ extern "C" {
 #include "portal.hpp"
 #include "batch.hpp"
 #include "sdconfig.hpp"
+#include "wx.hpp"
 
 static const char *TAG = "riddle";
 
@@ -75,6 +76,9 @@ extern "C" void app_main(void)
     static schedule_t sched;
     sdconfig_load(&kids, &sched);
 
+    static weather_t wx;
+    wx_load(&wx);               // cache only; the fetch is morning-only
+
     // NVS BEFORE THE NETWORK. esp_wifi_init() fails with
     // ESP_ERR_NVS_NOT_INITIALIZED and then abort()s, and the WiFi stack is the
     // first thing here that touches NVS. It used to be initialised lazily on
@@ -115,6 +119,7 @@ extern "C" void app_main(void)
             // is merely slow must not cost the morning's riddle.
             static riddle_batch_t fetched;
             if (batch_fetch(&fetched) > 0) s_batch = fetched;
+            wx_fetch(&wx, (uint32_t)time(nullptr));
             net_stop();
         }
     }
@@ -203,10 +208,6 @@ extern "C" void app_main(void)
     // the page is driven from literals -- which is the point of it taking its
     // content as a parameter. Every zone is populated so all of them draw at
     // once; real days will show fewer.
-    static weather_t wx;
-    wx.temp_x10 = 274; wx.hi_x10 = 310; wx.lo_x10 = 220;
-    wx.wmo = 0; wx.fetched_at = 1;      // ancient, so the "old" marker shows
-
     // Real riddles if we have any, cached or freshly fetched.
     if (s_batch.count == 0) batch_load(&s_batch);
 
@@ -248,7 +249,7 @@ extern "C" void app_main(void)
     c.date       = datebuf;
     c.streak     = st.streak;
     c.sched      = &sched;
-    c.wx         = &wx;
+    c.wx         = (wx.fetched_at != 0) ? &wx : nullptr;
     c.kids       = (kids.count > 0) ? &kids : nullptr;
     c.today      = in.today;
     c.month      = lt.tm_mon + 1; c.day = lt.tm_mday;
@@ -287,15 +288,6 @@ extern "C" void app_main(void)
 
     ESP_LOGI(TAG, "FULL REFRESH: draw+push %lld ms, trailing display() %lld ms",
              (long long)push_ms, (long long)ms);
-
-    // BRING-UP DEMO. On USB the board stays awake and never takes the button
-    // path, so this is the only way to see and hear the feedback hardware.
-    // Remove once guesses are wired to real presses.
-    ESP_LOGW(TAG, "feedback demo: three guesses, then a rejection");
-    for (int i = 0; i < 3; i++) { feedback_guess(i); feedback_settle(); }
-    feedback_reject();
-    feedback_settle();
-    ESP_LOGW(TAG, "feedback demo done");
 
     // The alarm. Arming is verified by readback inside wake_arm_next -- a
     // board that thinks it is armed and is not never wakes again and looks

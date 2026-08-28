@@ -20,6 +20,7 @@ idf_component_register(
         "board/portal.cpp"
         "board/batch.cpp"
         "board/sdconfig.cpp"
+        "board/wx.cpp"
     INCLUDE_DIRS
         "."
         "core"
