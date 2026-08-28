@@ -96,7 +96,7 @@ eats the riddle.
 | | |
 |---|---|
 | `M5.begin()` | **464 ms** with `clear_display=false` (was 52.7 s with M5's own clear) |
-| Full refresh (draw + push) | **17.1 s** |
+| Full refresh (draw + push) | **~1.96 s** in normal operation; **17.1 s** on the first refresh after a power cycle (see below) |
 | `display()` after `endWrite()` | 0 ms — the push already happened |
 | Board autodetect | `M5GFX: [Autodetect] board_M5PaperColor` at 933 ms |
 
@@ -357,6 +357,34 @@ options invites a guess the board will refuse.
 
 Verified on hardware: `day=20693` (the real date via NTP), `idx=0/30`, and a
 same-day reboot correctly kept `idx` rather than advancing.
+
+## The refresh is 2 seconds, not 17
+
+Measured five ways in one boot, varying how much of the panel changes:
+
+| trial | time |
+|---|---|
+| all white (from the page) | 1959 ms |
+| all black (from white) | 1939 ms |
+| all white (from black) | 1959 ms |
+| all white again (no change) | 1959 ms |
+| full page (from white) | 1959 ms |
+
+Content is not the variable. Every earlier measurement was ~17100 ms, equally
+consistent.
+
+**Working hypothesis, not a conclusion:** the ~17 s figure was always the
+*first* refresh after a power cycle, and every later one is ~2 s. All the 17 s
+numbers were taken on boards that had just been unplugged and replugged; all
+the 2 s numbers follow warm resets. That fits, but it has not been tested —
+confirming it needs a power cycle followed immediately by a measurement.
+
+**This matters to the design.** The LED-and-chirp decision rests on "the screen
+cannot answer a button press", justified by 17 s. Two seconds is a different
+argument: it is slow, but it is within what a child would wait. The decision
+may still be right — a guess wake would also pay `M5.begin`, and the reveal is
+deliberately deferred to 16:00 — but it should be re-argued on the real number
+rather than inherited from a wrong one.
 
 ## What is NOT done yet
 
