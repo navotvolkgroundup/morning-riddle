@@ -10,6 +10,7 @@ idf_component_register(
         "core/daily_layout.c"
         "core/he_text.c"
         "ui/hebrew.cpp"
+        "ui/page_daily.cpp"
     INCLUDE_DIRS
         "."
         "core"

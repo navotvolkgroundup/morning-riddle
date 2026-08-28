@@ -20,6 +20,7 @@ extern "C" {
 }
 
 #include "hebrew.hpp"
+#include "page_daily.hpp"
 
 static const char *TAG = "riddle";
 
@@ -66,67 +67,42 @@ extern "C" void app_main(void)
 
     M5.Display.setRotation(0);
 
-    // BATCH THE DRAWING. Without startWrite/endWrite every primitive can push
-    // its own panel update, and on Spectra 6 an update is a full-panel
-    // waveform of 15-30s. Six bars plus text then costs minutes: the bars
-    // appear one at a time and the code after them looks hung. Observed --
-    // four minutes with no panic and no watchdog, just drawing.
+    // Sample content. NVS, the SD card and the network are not wired yet, so
+    // the page is driven from literals -- which is the point of it taking its
+    // content as a parameter. Every zone is populated so all of them draw at
+    // once; real days will show fewer.
+    static schedule_t sched;
+    schedule_parse("{\"days\":{\"thu\":[\"\xd7\x9e\xd7\xaa\xd7\x9e\xd7\x98\xd7\x99\xd7\xa7\xd7\x94\","
+                   "\"\xd7\xa1\xd7\xa4\xd7\x95\xd7\xa8\xd7\x98\"]}}", &sched);
+
+    static weather_t wx;
+    wx.temp_x10 = 274; wx.hi_x10 = 310; wx.lo_x10 = 220;
+    wx.wmo = 0; wx.fetched_at = 1;      // ancient, so the "old" marker shows
+
+    page_daily_content c = {};
+    c.date       = "27/08";
+    c.streak     = 4;
+    c.sched      = &sched;
+    c.wx         = &wx;
+    c.kids       = nullptr;             // no kids.json yet: those zones stay away
+    c.today      = 20692;               // 2026-08-27, a Thursday
+    c.month      = 8; c.day = 27;
+    c.now_utc    = 1788000000u;
+    c.question   = "\xd7\x9e\xd7\x94 \xd7\xa2\xd7\x95\xd7\x9c\xd7\x94 "
+                   "\xd7\x95\xd7\x9c\xd7\x90 \xd7\x99\xd7\x95\xd7\xa8\xd7\x93";
+    c.choices[0] = "\xd7\x92\xd7\x99\xd7\x9c";
+    c.choices[1] = "\xd7\x92\xd7\xa9\xd7\x9d";
+    c.choices[2] = "\xd7\xa9\xd7\x9e\xd7\xa9";
+    c.has_choices = true;
+
     const int64_t t_draw = esp_timer_get_time();
-    M5.Display.startWrite();
-    M5.Display.fillScreen(TFT_WHITE);
-
-    // Spectra 6 is black, white, red, yellow, blue, green. Drawing all six as
-    // labelled bars is the cheapest way to find out what the panel actually
-    // renders versus what M5GFX claims -- and how long a full refresh takes,
-    // which is the number the whole interaction design rests on.
-    struct { int c; const char *name; } bars[] = {
-        { TFT_BLACK,  "black"  }, { TFT_RED,   "red"   },
-        { TFT_YELLOW, "yellow" }, { TFT_BLUE,  "blue"  },
-        { TFT_GREEN,  "green"  }, { TFT_WHITE, "white" },
-    };
-    const int n  = sizeof bars / sizeof bars[0];
-    const int bw = w / n;
-    for (int i = 0; i < n; i++) {
-        M5.Display.fillRect(i * bw, h / 2, bw, h / 2 - 20, bars[i].c);
-        M5.Display.setTextColor(TFT_BLACK, TFT_WHITE);
-        M5.Display.setCursor(i * bw + 4, h - 18);
-        M5.Display.print(bars[i].name);
-    }
-
-    M5.Display.setTextColor(TFT_BLACK, TFT_WHITE);
-    M5.Display.setTextSize(3);
-    M5.Display.setCursor(12, 20);
-    M5.Display.print("Morning Riddle");
-
-    // Hebrew, on this panel, for the first time. Right-aligned and wrapped
-    // exactly as the daily page will do it, and in RED for the second line so
-    // the colour path through the renderer is exercised too -- a 1-bit
-    // renderer that merely compiles against a colour panel proves nothing.
-    he_metrics_t hm;
-    he::load_metrics(&hm);
-    const char *line = "\xd7\x91\xd7\x95\xd7\xa7\xd7\xa8 \xd7\x98\xd7\x95\xd7\x91";  // boker tov
-    he::draw_line_rtl(&hm, DL_CANVAS_W - DL_MARGIN_X, 92, line);
-    he::draw_wrapped(&hm, 140, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
-                     DL_BODY_BOTTOM, line, 2, TFT_RED);
-    ESP_LOGI(TAG, "hebrew: measured %d px for the greeting",
-             he_measure(&hm, line));
-    M5.Display.setTextSize(2);
-    M5.Display.setCursor(12, 60);
-    M5.Display.printf("%dx%d  core OK (wday=%d)", w, h, wd);
-
-    // endWrite() is what pushes the panel, so THAT is what must be timed.
-    // The first version timed display() instead and reported 0 ms -- a
-    // measurement of nothing, taken after the work had already happened.
-    M5.Display.endWrite();
+    page_daily_draw(c);
     const int64_t push_ms = (esp_timer_get_time() - t_draw) / 1000;
 
     const int64_t t0 = esp_timer_get_time();
     M5.Display.display();
     const int64_t ms = (esp_timer_get_time() - t0) / 1000;
 
-    // The number that decides the interaction model. The design assumes a full
-    // refresh is far too slow to answer a button press, and moved the reveal to
-    // 16:00 because of it. Measure it rather than trusting the datasheet.
     ESP_LOGI(TAG, "FULL REFRESH: draw+push %lld ms, trailing display() %lld ms",
              (long long)push_ms, (long long)ms);
 }

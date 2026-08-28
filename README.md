@@ -143,6 +143,26 @@ It is now emitted whole and left to overhang, which `draw_line_rtl` clips.
 
 Four mutations confirm the tests bite.
 
+## The daily page
+
+`ui/page_daily.cpp` assembles the whole page and pushes it **once** — header,
+utility band, birthday banner, name callout, riddle and three choices — with
+zone positions from `daily_layout` and text from the Hebrew renderer.
+
+It takes its content as a parameter rather than reading NVS, the SD card or the
+network. That lets it be drawn from sample data before any of those exist, and
+keeps deciding *what* to show separate from deciding *where it goes* — the
+split that has now paid for itself three times on this port.
+
+Colour is used in exactly two places, both meaning rather than decoration: the
+birthday banner is red, and a stale weather reading is marked red. Everything
+else is black on white, so the page still reads if colour ever misbehaves.
+
+**`PD_BUTTONS_ON_LEFT_EDGE` is unverified.** The choice markers must sit on the
+same edge as the buttons they name, or the page tells the reader to press the
+wrong one. On the Waveshare board this was guessed wrong first and settled only
+by looking at the hardware. It needs the same check here.
+
 ## What is NOT done yet
 
 - **No board code at all.** No display, RTC, buttons, power, or `main`.
