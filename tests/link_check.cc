@@ -26,6 +26,7 @@
 #include "schedule.h"
 #include "sd_json.h"
 #include "daily_layout.h"
+#include "he_text.h"
 
 #include <cstdio>
 
@@ -64,6 +65,12 @@ __attribute__((used)) void *const volatile kRefs[] = {
     (void *)sdj_strerror,
 
     (void *)daily_layout,
+
+    (void *)he_utf8_next,
+    (void *)he_glyph_width,
+    (void *)he_advance,
+    (void *)he_measure,
+    (void *)he_line_break,
 };
 
 }  // namespace

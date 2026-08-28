@@ -8,9 +8,12 @@ idf_component_register(
         "core/schedule.c"
         "core/sd_json.c"
         "core/daily_layout.c"
+        "core/he_text.c"
+        "ui/hebrew.cpp"
     INCLUDE_DIRS
         "."
         "core"
+        "ui"
     REQUIRES
         M5Unified
         M5GFX
@@ -22,4 +25,6 @@ idf_component_register(
         esp-tls
         json
         fatfs
+    EMBED_FILES
+        "ui/font24HE.FON"
 )

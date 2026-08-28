@@ -22,7 +22,8 @@ test: $(BUILD)/run_tests $(BUILD)/link_check
 
 SRC := tests/run_tests.c $(CORE)/riddle_decide.c $(CORE)/wake_log.c \
        $(CORE)/kids.c $(CORE)/weather.c $(CORE)/schedule.c \
-       $(CORE)/sd_json.c $(CORE)/daily_layout.c $(CJSON_DIR)/cJSON.c
+       $(CORE)/sd_json.c $(CORE)/daily_layout.c \
+       $(CORE)/he_text.c $(CJSON_DIR)/cJSON.c
 HDR := $(wildcard $(CORE)/*.h)
 
 $(BUILD)/run_tests: $(SRC) $(HDR) | $(BUILD)
@@ -34,10 +35,10 @@ $(BUILD)/run_tests: $(SRC) $(HDR) | $(BUILD)
 # builds. Compile the .c files AS C, then link against a C++ object.
 PURE   := $(CORE)/riddle_decide.c $(CORE)/wake_log.c $(CORE)/kids.c \
           $(CORE)/weather.c $(CORE)/schedule.c $(CORE)/sd_json.c \
-          $(CORE)/daily_layout.c
+          $(CORE)/daily_layout.c $(CORE)/he_text.c
 PURE_O := $(BUILD)/riddle_decide.o $(BUILD)/wake_log.o $(BUILD)/kids.o \
           $(BUILD)/weather.o $(BUILD)/schedule.o $(BUILD)/sd_json.o \
-          $(BUILD)/daily_layout.o $(BUILD)/cJSON.o
+          $(BUILD)/daily_layout.o $(BUILD)/he_text.o $(BUILD)/cJSON.o
 
 $(BUILD)/%.o: $(CORE)/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -I$(CORE) -I$(CJSON_DIR) -c -o $@ $<

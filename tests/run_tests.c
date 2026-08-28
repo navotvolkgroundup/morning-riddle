@@ -18,6 +18,7 @@
 #include "schedule.h"
 #include "sd_json.h"
 #include "daily_layout.h"
+#include "he_text.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -627,6 +628,71 @@ static int test_schedule_parse(void)
     return 0;
 }
 
+// ---------------------------------------------------------------- he_text ---
+//
+// Word wrapping used to live inside hebrew.inc next to the pixel blitting, so
+// the only way to check it was to look at a panel. On this board that costs 17
+// seconds an attempt. Synthetic metrics -- every letter 10px wide -- make the
+// arithmetic exact and the expectations readable.
+static int test_he_text(void)
+{
+    he_metrics_t m;
+    for (int i = 0; i < HE_NGLYPH; i++) m.width[i] = 10;
+
+    // UTF-8 decoding, including the Hebrew two-byte range.
+    uint32_t cp;
+    CHECK(he_utf8_next("", &cp) == 0);
+    CHECK(he_utf8_next("A", &cp) == 1 && cp == 'A');
+    CHECK(he_utf8_next("\xd7\x90", &cp) == 2 && cp == 0x05D0);   // alef
+    CHECK(he_is_hebrew(0x05D0));
+    CHECK(!he_is_hebrew('A'));
+
+    // Advances: Hebrew is ink width plus the gap, space and Latin are fixed,
+    // and anything undrawable advances zero rather than leaving a hole.
+    CHECK(he_advance(&m, 0x05D0) == 10 + HE_GAP);
+    CHECK(he_advance(&m, ' ') == HE_SPACE);
+    CHECK(he_advance(&m, 'A') == HE_LAT_W);
+    CHECK(he_advance(&m, 0x00B7) == 0);       // middle dot: not drawable
+    CHECK(he_advance(&m, 0x05B4) == 0);       // niqqud: outside the glyph range
+
+    // Two alefs and a space = 13 + 9 + 13.
+    CHECK(he_measure(&m, "\xd7\x90 \xd7\x90") == 13 + 9 + 13);
+    CHECK(he_measure(&m, "") == 0);
+    CHECK(he_measure(&m, NULL) == 0);
+
+    // Breaking on a space: "alef alef" in 30px fits only the first word.
+    const char *two = "\xd7\x90 \xd7\x90";
+    CHECK(he_line_break(&m, two, 100) == (int)strlen(two));   // all of it
+    CHECK(he_line_break(&m, two, 30) == 2);                   // just the alef
+
+    // THE BAIL-OUT THAT MATTERS. A single word wider than the whole line has no
+    // space to break at. Returning 0 would stall the caller forever, so the
+    // over-wide word is emitted whole and allowed to overhang.
+    const char *longword = "\xd7\x90\xd7\x90\xd7\x90\xd7\x90";
+    int n = he_line_break(&m, longword, 5);
+    CHECK(n > 0);
+    CHECK(n == (int)strlen(longword));
+
+    // Degenerate inputs must not loop or crash.
+    CHECK(he_line_break(&m, "", 100) == 0);
+    CHECK(he_line_break(&m, NULL, 100) == 0);
+    CHECK(he_line_break(&m, two, 0) == 0);
+
+    // A leading space must not be chosen as the break point -- that returns
+    // zero progress and hangs the wrap loop.
+    CHECK(he_line_break(&m, " \xd7\x90", 12) > 0);
+
+    // Missing width falls back to the full cell rather than zero, so a bad
+    // table renders wide instead of overlapping into gibberish.
+    he_metrics_t zero;
+    for (int i = 0; i < HE_NGLYPH; i++) zero.width[i] = 0;
+    CHECK(he_glyph_width(&zero, 0x05D0) == HE_W);
+    CHECK(he_glyph_width(&m, 'A') == 0);      // not Hebrew: no glyph
+    CHECK(he_glyph_width(NULL, 0x05D0) == 0);
+
+    return 0;
+}
+
 // ----------------------------------------------------------- daily_layout ---
 //
 // Sixteen flag combinations, checked against the properties a reflow bug
@@ -798,6 +864,7 @@ int main(void)
         { "schedule_parse",    test_schedule_parse },
         { "sd_json",           test_sd_json },
         { "daily_layout",      test_daily_layout },
+        { "he_text",           test_he_text },
     };
     for (unsigned i = 0; i < sizeof tests / sizeof tests[0]; i++) {
         if (tests[i].fn()) {

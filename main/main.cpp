@@ -19,6 +19,8 @@ extern "C" {
 #include "schedule.h"
 }
 
+#include "hebrew.hpp"
+
 static const char *TAG = "riddle";
 
 extern "C" void app_main(void)
@@ -95,6 +97,19 @@ extern "C" void app_main(void)
     M5.Display.setTextSize(3);
     M5.Display.setCursor(12, 20);
     M5.Display.print("Morning Riddle");
+
+    // Hebrew, on this panel, for the first time. Right-aligned and wrapped
+    // exactly as the daily page will do it, and in RED for the second line so
+    // the colour path through the renderer is exercised too -- a 1-bit
+    // renderer that merely compiles against a colour panel proves nothing.
+    he_metrics_t hm;
+    he::load_metrics(&hm);
+    const char *line = "\xd7\x91\xd7\x95\xd7\xa7\xd7\xa8 \xd7\x98\xd7\x95\xd7\x91";  // boker tov
+    he::draw_line_rtl(&hm, DL_CANVAS_W - DL_MARGIN_X, 92, line);
+    he::draw_wrapped(&hm, 140, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
+                     DL_BODY_BOTTOM, line, 2, TFT_RED);
+    ESP_LOGI(TAG, "hebrew: measured %d px for the greeting",
+             he_measure(&hm, line));
     M5.Display.setTextSize(2);
     M5.Display.setCursor(12, 60);
     M5.Display.printf("%dx%d  core OK (wday=%d)", w, h, wd);

@@ -117,6 +117,32 @@ The 17.1 s refresh confirms the interaction decision from the other direction:
 the screen cannot answer a button press, so the guess gets an LED and a chirp
 and the reveal waits for 16:00.
 
+## Hebrew
+
+Ported from the Waveshare `hebrew.inc`, and split the way the rest of this
+project is split:
+
+- **`core/he_text.c`** — UTF-8 decoding, advance widths, word breaking. Pure,
+  host-tested. On the old board this lived beside the pixel blitting, so the
+  wrap logic could only be checked by looking at a panel; here that costs 17
+  seconds an attempt.
+- **`ui/hebrew.cpp`** — glyph blitting and the RTL pen, against M5GFX. Colour
+  is a parameter now rather than a hard-coded `BLACK`.
+
+Two bugs the split surfaced immediately, both inherited:
+
+**Niqqud advanced the pen but drew nothing.** A mark like U+05B4 is inside the
+Hebrew block, so `he_is_hebrew` accepted it, but it is outside the glyph range
+`0x05D0–0x05EA` and has no bitmap. The old code advanced by `HE_GAP` anyway —
+an invisible gap mid-word, the exact failure `schedule.c`'s `drawable()` guard
+exists to prevent. `he_is_letter()` now draws the distinction.
+
+**A word wider than the line returned nothing**, which made the caller stop and
+silently drop the rest of the text — for a riddle, the question would just end.
+It is now emitted whole and left to overhang, which `draw_line_rtl` clips.
+
+Four mutations confirm the tests bite.
+
 ## What is NOT done yet
 
 - **No board code at all.** No display, RTC, buttons, power, or `main`.
@@ -127,5 +153,3 @@ and the reveal waits for 16:00.
   Waveshare-specific artefacts that do not exist here. Both caught real bugs
   and both need equivalents once the M5GFX drawing and M5Unified button paths
   exist. Until then `wmo_icon()` is tested but unused.
-- **Hebrew rendering.** `hebrew.inc` writes into a 1-bit buffer. It needs a
-  colour-aware pixel writer behind it before any Hebrew reaches this panel.
