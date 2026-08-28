@@ -651,15 +651,15 @@ static int test_daily_layout(void)
         daily_layout_t L;
         daily_layout(&f, &L);
 
-        // Absent means absent, and takes no space.
+        // Absent means absent, and takes no space. Every zone is placed when
+        // asked for -- portrait has room, so unlike the landscape version
+        // nothing is suppressed to make things fit.
         CHECK(f.schedule == (L.schedule_y != DL_ABSENT));
         CHECK(f.weather  == (L.weather_y  != DL_ABSENT));
+        CHECK(f.callout  == (L.callout_y  != DL_ABSENT));
         CHECK(f.birthday == (L.birthday_y != DL_ABSENT));
-        // The callout is the exception: requested is not the same as placed,
-        // because a birthday suppresses it.
-        CHECK((f.callout && !f.birthday) == (L.callout_y != DL_ABSENT));
 
-        // Nothing starts above the header rule, and nothing runs off the page.
+        // Nothing starts above the header rule; nothing runs off the page.
         if (L.schedule_y != DL_ABSENT) CHECK(L.schedule_y > DL_HDR_RULE_Y);
         if (L.weather_y  != DL_ABSENT) CHECK(L.weather_y  > DL_HDR_RULE_Y);
         if (L.birthday_y != DL_ABSENT) CHECK(L.birthday_y > DL_HDR_RULE_Y);
@@ -667,18 +667,15 @@ static int test_daily_layout(void)
         CHECK(L.riddle_top + L.riddle_h == DL_BODY_BOTTOM);
         CHECK(L.riddle_top < DL_CANVAS_H);
 
-        // THE BAND IS HORIZONTAL: schedule and weather share one line, so they
-        // have the same y and differ in x. On the portrait board they were
-        // stacked and this assertion would have been exactly wrong -- which is
-        // the point of pinning it.
-        if (L.schedule_y != DL_ABSENT && L.weather_y != DL_ABSENT) {
-            CHECK(L.schedule_y == L.weather_y);
-            CHECK(L.weather_x > L.schedule_x);
-        }
-        if (L.weather_x != DL_ABSENT) CHECK(L.weather_x >= DL_BAND_SPLIT_X);
-        if (L.schedule_x != DL_ABSENT) CHECK(L.schedule_x < DL_BAND_SPLIT_X);
+        // Stacked, not side by side: weather sits a full line below schedule.
+        // The landscape version put them on one line, and this is the
+        // assertion that would have caught carrying that over.
+        if (L.schedule_y != DL_ABSENT && L.weather_y != DL_ABSENT)
+            CHECK(L.weather_y >= L.schedule_y + DL_LINE_H);
 
-        // Order and non-overlap: band, then birthday or callout, then riddle.
+        // Order and non-overlap.
+        if (L.birthday_y != DL_ABSENT && L.callout_y != DL_ABSENT)
+            CHECK(L.callout_y >= L.birthday_y + DL_LINE_H);
         if (L.callout_y != DL_ABSENT)
             CHECK(L.riddle_top >= L.callout_y + DL_LINE_H);
         if (L.birthday_y != DL_ABSENT)
@@ -696,48 +693,41 @@ static int test_daily_layout(void)
                 CHECK(L.weather_y >= L.band_y);
                 CHECK(L.weather_y + DL_LINE_H <= L.band_y + L.band_h);
             }
-            CHECK(L.riddle_top >= L.band_y + L.band_h);
             // Everything below the band clears it. Checking only riddle_top is
-            // not enough -- that was how a band-overlap mutation survived on
-            // the portrait board.
+            // not enough: the eye-level floor sits below any band this layout
+            // produces, so it would clear the band by accident even if the
+            // band's height were ignored entirely -- which is exactly how a
+            // mutation survived on the Waveshare board.
             if (L.birthday_y != DL_ABSENT)
                 CHECK(L.birthday_y >= L.band_y + L.band_h);
             if (L.callout_y != DL_ABSENT)
                 CHECK(L.callout_y >= L.band_y + L.band_h);
+            CHECK(L.riddle_top >= L.band_y + L.band_h);
         }
 
-        // The floor. On this panel it is tight rather than comfortable: the
-        // worst case leaves 220 against a 200 minimum, so a fifth zone or a
-        // taller banner fails HERE rather than as a clipped riddle nobody
-        // notices for a week.
         CHECK(L.riddle_h >= DL_RIDDLE_MIN_H);
-
-        // Direction: every page sits between the empty one and the fullest.
         CHECK(L.riddle_top >= Le.riddle_top);
         CHECK(L.riddle_top <= Lf.riddle_top);
     }
 
-    CHECK(Le.riddle_top < Lf.riddle_top);
-    CHECK(Le.riddle_h   > Lf.riddle_h);
+    CHECK(Le.riddle_top <= Lf.riddle_top);
+    CHECK(Le.riddle_h   >= Lf.riddle_h);
     CHECK(Le.band_h == 0);
-    CHECK(Le.riddle_h == DL_BODY_BOTTOM - (DL_HDR_RULE_Y + DL_ZONE_GAP));
 
-    // A birthday costs no more than a callout would have, because it replaces
-    // it. Without the suppression rule the two would stack and the worst case
-    // would breach the floor -- this pins the rule, not just its side effect.
-    daily_flags_t bday_only = { true, true, false, true };
-    daily_flags_t both      = { true, true, true,  true };
-    daily_layout_t Lb, Lt;
-    daily_layout(&bday_only, &Lb);
+    // Approach C: the riddle sits at child height however few zones exist.
+    // Without the floor an empty page would start it around y=46.
+    CHECK(Le.riddle_top == DL_RIDDLE_TOP_MIN);
+
+    // A birthday does NOT suppress the callout here -- portrait has the room.
+    daily_flags_t both = { true, true, true, true };
+    daily_layout_t Lt;
     daily_layout(&both, &Lt);
-    CHECK(Lb.riddle_top == Lt.riddle_top);
-    CHECK(Lt.callout_y == DL_ABSENT);
+    CHECK(Lt.callout_y != DL_ABSENT);
+    CHECK(Lt.birthday_y != DL_ABSENT);
 
-    // One zone must strictly push the riddle down.
-    daily_flags_t sched_only = { true, false, false, false };
-    daily_layout_t Ls;
-    daily_layout(&sched_only, &Ls);
-    CHECK(Ls.riddle_top > Le.riddle_top);
+    // Enough zones must push the riddle past the floor, or the floor would be
+    // masking every reflow bug below it.
+    CHECK(Lt.riddle_top > DL_RIDDLE_TOP_MIN);
 
     // NULL flags behave as the empty page.
     daily_layout_t Ln;

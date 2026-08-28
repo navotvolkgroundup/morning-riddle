@@ -2,14 +2,19 @@
 //
 // IDF-free and drawing-free on purpose. Three optional zones (schedule,
 // weather, callout) plus the birthday banner give sixteen combinations.
-// Checking those on the board means contriving a birthday, an empty weekend
-// timetable and a failed weather fetch, then waiting 15-30 SECONDS per redraw
-// on a panel with no partial update. Reflow tangled into drawing code is
-// reflow nobody verifies. (Eng review D8, and far more true here.)
+// Verifying those on the board means contriving a birthday, an empty weekend
+// timetable and a failed weather fetch -- and this panel takes ~52s to
+// initialise and 15-30s per redraw, with no partial update. Reflow tangled
+// into drawing code is reflow nobody checks. (Eng review D8, more so here.)
 //
-// COORDINATES ARE THE PANEL, 600x400 LANDSCAPE.
-// A zone that is not present gets y == DL_ABSENT and consumes no height, so
-// everything below it moves up.
+// COORDINATES ARE THE PANEL, 400x600 PORTRAIT.
+//
+// The panel is NATIVELY 400x600. The "600x400" in the product name is the
+// rotated view, and an earlier version of this file was built for it -- a
+// horizontal band, a birthday that suppressed the callout, no eye-level floor,
+// all justified by height having halved from the Waveshare board's 800 to 400.
+// The hardware reports 600 of height. Those compensations were answers to a
+// problem that did not exist, and are gone.
 
 #ifndef DAILY_LAYOUT_H
 #define DAILY_LAYOUT_H
@@ -22,53 +27,34 @@ extern "C" {
 
 #define DL_ABSENT      (-1)
 
-// 600x400, versus the Waveshare board's 480x800 portrait. Wider by 120,
-// and SHORTER BY HALF. That inversion is what drove the rest of this file:
-// vertical space is now the scarce resource and width is the plentiful one.
-#define DL_CANVAS_W    600
-#define DL_CANVAS_H    400
+#define DL_CANVAS_W    400
+#define DL_CANVAS_H    600
 #define DL_MARGIN_X     14
 #define DL_BODY_BOTTOM (DL_CANVAS_H - 8)
 
 #define DL_HDR_Y         8
-#define DL_HDR_RULE_Y   44
+#define DL_HDR_RULE_Y   40
 #define DL_LINE_H       41      // one Hebrew text line
-#define DL_BAND_PAD      6
+#define DL_BAND_PAD      8
 #define DL_ZONE_GAP      6
 
-// THE BAND IS HORIZONTAL HERE, NOT STACKED.
-//
-// On the portrait board the schedule sat above the weather, two lines costing
-// 82px out of 800. Spending 82 of 400 on utility would leave the riddle less
-// than half the page. Side by side they cost one line instead of two, and the
-// 600px width easily carries both.
-#define DL_BAND_SPLIT_X 330     // schedule left of this, weather right of it
+// A wrapped question (two lines, 82) plus three choices (~64 each, 192) is
+// 274. The worst case -- every zone present -- leaves 291, so this fires
+// before a riddle clips rather than after someone notices one did.
+#define DL_RIDDLE_MIN_H 280
 
-// The riddle needs a wrapped question plus three choices: two lines at 41
-// (82) and three choices at ~44 (132) is 214. 200 is the floor, and unlike
-// the portrait board's 420 it is genuinely TIGHT -- the worst case lands at
-// 220, twenty pixels of slack. That is the honest number for this panel, not
-// a comfortable one, and it is why the birthday rule below exists.
-#define DL_RIDDLE_MIN_H 200
-
-// A BIRTHDAY SUPPRESSES THE CALLOUT.
+// APPROACH C, and the one number the wall decides.
 //
-// Both zones do the same job -- address the reader by name -- and on a 400px
-// page the pair costs 110px, a quarter of everything below the header. The
-// banner already makes the screen unmistakably about that child, so the
-// callout adds nothing but crowding. On the 800px board they could coexist;
-// here they cannot, and choosing which to drop is a layout decision rather
-// than something to discover as a clipped riddle.
-#define DL_BIRTHDAY_SUPPRESSES_CALLOUT 1
-
-// NO APPROACH-C FLOOR.
+// The design weights the riddle low so the utility band sits at an adult's
+// natural gaze and the riddle at a child's. With few zones present the riddle
+// would otherwise start around y=46 and the separation disappears.
 //
-// The portrait design pinned the riddle into the lower two-thirds so it sat at
-// a child's eye level while the utility band sat at an adult's. That trick
-// needed 800px of height to separate the two. At 400px the whole page is one
-// glance -- there is no "lower two-thirds" to aim at, and forcing one would
-// only steal space from the riddle. The mounting height question that governed
-// DL_RIDDLE_TOP_MIN does not arise on this panel.
+// 200 is a third of the panel, scaled from the Waveshare board's 265 of 800.
+// If the board ends up hung LOW the advantage inverts, and the fix is to set
+// this to 0: the riddle then follows the utility zones directly. That is the
+// whole change -- which is what the design meant by "a constant change if
+// wrong", and it is live again now that the page is portrait.
+#define DL_RIDDLE_TOP_MIN 200
 
 typedef struct {
     bool schedule;      // today has subjects (weekends usually do not)
@@ -78,9 +64,9 @@ typedef struct {
 } daily_flags_t;
 
 typedef struct {
-    int band_y, band_h;     // one horizontal band; band_h 0 when empty
-    int schedule_x, schedule_y;
-    int weather_x, weather_y;
+    int band_y, band_h;     // bordered utility band; band_h 0 when empty
+    int schedule_y;
+    int weather_y;
     int birthday_y;
     int callout_y;
     int riddle_top;         // first y the riddle may use

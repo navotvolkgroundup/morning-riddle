@@ -66,32 +66,30 @@ This is the payoff from keeping the decision core IDF-free and board-free on
 the old board. It was argued for on testability grounds; it turned out to be
 what made a hardware change cheap.
 
-## Layout: 600×400 landscape
+## Layout: 400×600 portrait
 
-Not a constant swap. The panel is 120px wider and **half the height**, so
-vertical space became the scarce resource and the portrait arrangement stopped
-fitting — a straight port left the riddle 132px against its own 300 minimum.
+**The panel is natively 400×600.** The "600×400" in the product name is the
+rotated view — `M5.Display` reports 400×600 before any rotation, confirmed on
+hardware.
 
-Three changes came out of that:
+An earlier version of the geometry was built for landscape, on the reasoning
+that height had halved from the Waveshare board's 800 to 400. It hadn't: there
+are 600 pixels of height. Three compensations were introduced to survive a
+squeeze that did not exist, and all three are gone:
 
-- **The utility band is horizontal.** Schedule left, weather right of
-  `DL_BAND_SPLIT_X`, sharing one line. Stacked they cost 82 of 400.
-- **A birthday suppresses the callout.** Both address the reader by name, and
-  together they cost 110px — a quarter of everything below the header. The
-  banner already makes the page about that child.
-- **No approach-C floor.** The portrait design pinned the riddle into the lower
-  two-thirds so it sat at a child's eye level and the utility band at an
-  adult's. That needs 800px to separate. At 400 the whole page is one glance,
-  and the mounting-height question that governed `DL_RIDDLE_TOP_MIN` does not
-  arise here.
+- a horizontal band (schedule beside weather) — back to stacked, since side by
+  side gives each 190px on a 400-wide panel, too little for a Hebrew timetable
+- a birthday suppressing the callout — they coexist again
+- no eye-level floor — `DL_RIDDLE_TOP_MIN` is back, at 200
 
-The riddle floor is `DL_RIDDLE_MIN_H 200` and the worst case lands at **220** —
-tight, not comfortable. A fifth zone or a taller banner fails the tests rather
-than shipping as a clipped riddle.
+That last one also revives the **wall measurement**: the floor keeps the riddle
+at a child's eye level while the utility band sits at an adult's. Hung low, set
+it to 0 and the layout follows the zones directly.
 
-Five mutations confirm the tests have teeth: band taking no space, the band
-stacked as it was in portrait, the birthday suppression removed, the banner
-back to two lines, and weather placed on the wrong side of the split.
+`DL_RIDDLE_MIN_H` is 280 and the worst case is 291. Five mutations confirm the
+tests bite: band taking no space, schedule and weather sharing a line, the
+callout not moving the riddle, the floor removed, and the banner grown until it
+eats the riddle.
 
 ## What is NOT done yet
 

@@ -55,12 +55,12 @@ extern "C" void app_main(void)
     daily_layout_t L;
     daily_flags_t f = { false, false, false, false };
     daily_layout(&f, &L);
-    // NOTE: daily_layout is built for 600x400 LANDSCAPE, but the panel reports
-    // 400x600 -- it is natively portrait and the 600x400 in the product name
-    // is the rotated view. Which orientation the daily page uses is an open
-    // decision; until it is made, this number is geometry looking for a canvas.
-    ESP_LOGI(TAG, "daily_layout riddle_top=%d (layout is 600x400 landscape; "
-                  "panel reports %dx%d)", L.riddle_top, w, h);
+    // Layout and panel must agree. They disagreed once, silently, because the
+    // geometry was built for the product name's 600x400 rather than the
+    // hardware's 400x600.
+    ESP_LOGI(TAG, "daily_layout riddle_top=%d, canvas %dx%d, panel %dx%d%s",
+             L.riddle_top, DL_CANVAS_W, DL_CANVAS_H, w, h,
+             (w == DL_CANVAS_W && h == DL_CANVAS_H) ? "" : "  <-- MISMATCH");
 
     M5.Display.setRotation(0);
     M5.Display.fillScreen(TFT_WHITE);
