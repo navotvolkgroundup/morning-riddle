@@ -23,6 +23,7 @@ extern "C" {
 #include "page_daily.hpp"
 #include "wake.hpp"
 #include "feedback.hpp"
+#include "state.hpp"
 
 static const char *TAG = "riddle";
 
@@ -52,6 +53,13 @@ extern "C" void app_main(void)
     ESP_LOGW(TAG, "M5.begin took %lld ms (clear_display=false)",
              (long long)((esp_timer_get_time() - t_begin) / 1000));
 
+    // CLOCK FIRST, before anything asks what day it is. riddle_local_day()
+    // keys the whole state machine, so a page recorded against an unsynced
+    // 1970 and a guess judged against the real date disagree -- and every
+    // press is then correctly refused as "yesterday's screen", which looks
+    // exactly like a broken button.
+    wake_sync_clock();
+
     // THE BUTTON SHORT PATH. A guess is acknowledged by the LED and a chirp
     // and nothing else: the panel needs 17.1s and cannot answer a press, so
     // the reveal waits for the 16:00 wake. This costs well under a second.
@@ -62,10 +70,34 @@ extern "C" void app_main(void)
     // it entirely and had no way to acknowledge anything.
     if (why == wake_cause::button) {
         const int b = wake_button_index();
-        ESP_LOGW(TAG, "button wake: guess %d, no display", b);
-        feedback_guess(b);
-        // Recording the guess into NVS goes here once the riddle state is
-        // wired up; riddle_decide() already has the state machine for it.
+
+        riddle_nvs_t st;
+        state_load(&st);
+
+        riddle_input_t in = {};
+        in.reason  = WAKE_GUESS;
+        in.guess   = (int8_t)b;
+        in.batch_n = 1;                 // the sample riddle; the real count
+                                        // arrives with the fetched batch
+        in.today   = riddle_local_day(time(nullptr), RIDDLE_TZ);
+
+        const riddle_action_e act = riddle_decide(&in, &st);
+
+        // ACKNOWLEDGE WHAT THE STATE MACHINE DECIDED, not what was pressed.
+        // A guess after the answer is out, or against yesterday's screen, is a
+        // no-op -- and telling a child their guess landed when it did not is
+        // worse than telling them it did not.
+        if (act == ACT_SHOW_RESULT) {
+            if (!state_save(&st))
+                ESP_LOGE(TAG, "GUESS NOT SAVED -- it will be forgotten by 16:00");
+            ESP_LOGW(TAG, "guess %d accepted, streak %u", b, (unsigned)st.streak);
+            feedback_guess(b);
+        } else {
+            ESP_LOGW(TAG, "guess %d refused (state=%u, day=%ld vs today=%ld)",
+                     b, (unsigned)st.state, (long)st.day, (long)in.today);
+            feedback_reject();
+        }
+
         feedback_settle();
         wake_sleep();
     }
@@ -138,6 +170,23 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "FULL REFRESH: draw+push %lld ms, trailing display() %lld ms",
              (long long)push_ms, (long long)ms);
 
+    // The page is up, so a guess is now legitimate. Without this the state
+    // stays RS_IDLE and every press is correctly refused -- the screen would
+    // show a riddle that the state machine does not believe exists.
+    {
+        riddle_nvs_t st;
+        state_load(&st);
+        riddle_input_t in = {};
+        in.reason  = WAKE_MORNING;
+        in.guess   = RIDDLE_NO_GUESS;
+        in.batch_n = 1;
+        in.today   = riddle_local_day(time(nullptr), RIDDLE_TZ);
+        const riddle_action_e act = riddle_decide(&in, &st);
+        ESP_LOGI(TAG, "page state: action=%d state=%u day=%ld",
+                 (int)act, (unsigned)st.state, (long)st.day);
+        state_save(&st);
+    }
+
     // BRING-UP DEMO. On USB the board stays awake and never takes the button
     // path, so this is the only way to see and hear the feedback hardware.
     // Remove once guesses are wired to real presses.
@@ -147,10 +196,9 @@ extern "C" void app_main(void)
     feedback_settle();
     ESP_LOGW(TAG, "feedback demo done");
 
-    // The clock, then the alarm. Arming is verified by readback inside
-    // wake_arm_next -- a board that thinks it is armed and is not never wakes
-    // again and looks exactly like a working one.
-    wake_sync_clock();
+    // The alarm. Arming is verified by readback inside wake_arm_next -- a
+    // board that thinks it is armed and is not never wakes again and looks
+    // exactly like a working one. The clock was synced above.
     int morning = 0;
     if (!wake_arm_next(time(nullptr), &morning))
         ESP_LOGE(TAG, "ALARM DID NOT ARM -- this board will not wake on its own");

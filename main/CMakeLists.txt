@@ -13,6 +13,7 @@ idf_component_register(
         "ui/page_daily.cpp"
         "board/wake.cpp"
         "board/feedback.cpp"
+        "board/state.cpp"
     INCLUDE_DIRS
         "."
         "core"

@@ -212,6 +212,32 @@ can leave the LED latched on — for hours, on a battery, with nobody watching.
 
 **Verified on hardware:** LED blinked and chirped, all four signals.
 
+## Guess state
+
+`board/state.cpp` persists `riddle_nvs_t` to NVS. `riddle_decide()` cannot
+store anything itself — it takes no IDF header by design — so this is the other
+half: the part that knows about NVS and nothing about the rules.
+
+The struct is written whole. It is 16 bytes and only meaningful together: a
+streak saved without its day, or a guess without the state that makes it valid,
+is worse than no save. A blob of the wrong size is ignored rather than read as
+the current layout, which would silently scramble the day and streak after a
+struct change.
+
+**The button path acknowledges what the state machine decided, not what was
+pressed.** A guess after the answer is out, or against yesterday's screen, is a
+no-op — and telling a child their guess landed when it did not is worse than
+telling them it did not. Accepted guesses get their colour and note; refused
+ones get the red rejection.
+
+Verified on hardware: page records `state=1` (question shown), saves, and the
+value loads back intact across a reboot.
+
+**The clock is synced before anything asks the date.** `riddle_local_day()`
+keys the whole state machine, so a page recorded against an unsynced 1970 and a
+guess judged against the real date disagree — and every press is then correctly
+refused as "yesterday's screen", which looks exactly like a broken button.
+
 ## What is NOT done yet
 
 - **No board code at all.** No display, RTC, buttons, power, or `main`.
