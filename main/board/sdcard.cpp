@@ -8,6 +8,9 @@
 
 #include <dirent.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 static const char *TAG = "sd";
 
 namespace {
@@ -47,6 +50,11 @@ bool sd_mount()
 
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     host.slot = SPI3_HOST;
+    // Default speed. 400kHz was tried on the theory that slower is safer and
+    // it made things worse, not better -- sdmmc_init_sd_ssr timed out where
+    // the default had mounted this same card at 14910MB earlier. Speculative
+    // robustness that is not measured is just a change.
+    host.max_freq_khz = SDMMC_FREQ_DEFAULT;
 
     sdspi_device_config_t slot = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot.gpio_cs = (gpio_num_t)kPinCs;
@@ -60,13 +68,28 @@ bool sd_mount()
     mcfg.max_files              = 4;
     mcfg.allocation_unit_size   = 16 * 1024;
 
-    const esp_err_t err =
-        esp_vfs_fat_sdspi_mount(SD_MOUNT_POINT, &host, &slot, &mcfg, &g_card);
+    // Three attempts. A card that has just been powered up, or reinserted
+    // while the board is running, often refuses the first probe and answers
+    // the second -- retrying is cheaper than telling someone their card is
+    // broken when it is not.
+    esp_err_t err = ESP_FAIL;
+    for (int attempt = 1; attempt <= 3; attempt++) {
+        err = esp_vfs_fat_sdspi_mount(SD_MOUNT_POINT, &host, &slot, &mcfg, &g_card);
+        if (err == ESP_OK) break;
+        ESP_LOGD(TAG, "mount attempt %d: %s", attempt, esp_err_to_name(err));
+        vTaskDelay(pdMS_TO_TICKS(120));
+    }
+
     if (err != ESP_OK) {
-        // No card is the ordinary case, so it is logged quietly; anything else
-        // is worth noticing.
-        if (err == ESP_ERR_NOT_FOUND || err == ESP_FAIL)
-            ESP_LOGI(TAG, "no usable card (%s)", esp_err_to_name(err));
+        // ESP_ERR_TIMEOUT means the card never answered. That is what an empty
+        // slot looks like AND what a badly seated or failing card looks like,
+        // so say both rather than asserting one.
+        if (err == ESP_ERR_TIMEOUT)
+            ESP_LOGW(TAG, "no answer from the card: slot empty, card not "
+                          "seated, or card failing (%s)", esp_err_to_name(err));
+        else if (err == ESP_FAIL)
+            ESP_LOGW(TAG, "card answered but has no readable filesystem -- "
+                          "format it as FAT32 (MS-DOS), not exFAT");
         else
             ESP_LOGW(TAG, "mount failed: %s", esp_err_to_name(err));
         g_card = nullptr;

@@ -44,6 +44,18 @@ typedef struct {
     kid_t   kid[KIDS_MAX];
 } kids_t;
 
+// Parses kids.json:
+//
+//   { "kids": [ { "name": "...", "month": 3, "day": 14 } ] }
+//
+// Month and day may be omitted, which simply means no birthday. Entries
+// without a usable name are skipped rather than failing the file -- one
+// mistyped child should not cost the others.
+//
+// Returns false only if the document itself is unusable, leaving *out
+// untouched, so a bad card cannot wipe good cached names.
+bool kids_parse(const char *json, kids_t *out);
+
 // True if the blob is self-consistent. A blob that fails this is treated as
 // absent rather than indexed into.
 bool kids_valid(const kids_t *k);

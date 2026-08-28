@@ -28,6 +28,7 @@ extern "C" {
 #include "net.hpp"
 #include "portal.hpp"
 #include "batch.hpp"
+#include "sdconfig.hpp"
 
 static const char *TAG = "riddle";
 
@@ -58,6 +59,21 @@ extern "C" void app_main(void)
     M5.begin(cfg);
     ESP_LOGW(TAG, "M5.begin took %lld ms (clear_display=false)",
              (long long)((esp_timer_get_time() - t_begin) / 1000));
+
+    // The kids and the timetable, cache first then the card.
+    //
+    // BEFORE the radio, deliberately. The card mounted reliably when this
+    // ran early and stopped once it moved after WiFi had been started and
+    // stopped -- the SD power rail is switched by the PM1, and bringing the
+    // radio up and down around it is the one thing that changed. Reading
+    // config before using the network is the right order anyway.
+    //
+    // It is also independent of where WiFi came from: these were previously
+    // only reached when credentials were missing, so a board configured
+    // through the portal never touched its card at all.
+    static kids_t     kids;
+    static schedule_t sched;
+    sdconfig_load(&kids, &sched);
 
     // NVS BEFORE THE NETWORK. esp_wifi_init() fails with
     // ESP_ERR_NVS_NOT_INITIALIZED and then abort()s, and the WiFi stack is the
@@ -109,6 +125,8 @@ extern "C" void app_main(void)
     // press is then correctly refused as "yesterday's screen", which looks
     // exactly like a broken button.
     wake_sync_clock();
+
+
 
     // THE BUTTON SHORT PATH. A guess is acknowledged by the LED and a chirp
     // and nothing else: the panel needs 17.1s and cannot answer a press, so
@@ -185,10 +203,6 @@ extern "C" void app_main(void)
     // the page is driven from literals -- which is the point of it taking its
     // content as a parameter. Every zone is populated so all of them draw at
     // once; real days will show fewer.
-    static schedule_t sched;
-    schedule_parse("{\"days\":{\"thu\":[\"\xd7\x9e\xd7\xaa\xd7\x9e\xd7\x98\xd7\x99\xd7\xa7\xd7\x94\","
-                   "\"\xd7\xa1\xd7\xa4\xd7\x95\xd7\xa8\xd7\x98\"]}}", &sched);
-
     static weather_t wx;
     wx.temp_x10 = 274; wx.hi_x10 = 310; wx.lo_x10 = 220;
     wx.wmo = 0; wx.fetched_at = 1;      // ancient, so the "old" marker shows
@@ -235,7 +249,7 @@ extern "C" void app_main(void)
     c.streak     = st.streak;
     c.sched      = &sched;
     c.wx         = &wx;
-    c.kids       = nullptr;             // no kids.json yet: those zones stay away
+    c.kids       = (kids.count > 0) ? &kids : nullptr;
     c.today      = in.today;
     c.month      = lt.tm_mon + 1; c.day = lt.tm_mday;
     c.now_utc    = (uint32_t)now_t;

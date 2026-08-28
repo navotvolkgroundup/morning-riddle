@@ -19,6 +19,7 @@ idf_component_register(
         "board/net.cpp"
         "board/portal.cpp"
         "board/batch.cpp"
+        "board/sdconfig.cpp"
     INCLUDE_DIRS
         "."
         "core"
