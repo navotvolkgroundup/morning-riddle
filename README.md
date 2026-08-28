@@ -91,6 +91,32 @@ tests bite: band taking no space, schedule and weather sharing a line, the
 callout not moving the riddle, the floor removed, and the banner grown until it
 eats the riddle.
 
+## Measured on hardware
+
+| | |
+|---|---|
+| `M5.begin()` | **52.7 s** — Spectra 6 panel initialisation |
+| Full refresh (draw + push) | **17.1 s** |
+| `display()` after `endWrite()` | 0 ms — the push already happened |
+| Board autodetect | `M5GFX: [Autodetect] board_M5PaperColor` at 933 ms |
+
+Two things follow.
+
+**Batch every draw.** Without `startWrite`/`endWrite` each primitive can push
+its own full-panel waveform. Six bars and two strings then take minutes: the
+bars appear one at a time and the code after them looks hung — observed as four
+minutes with no panic and no watchdog.
+
+**Cold boot costs about 70 seconds** before anything is on screen: 52.7 s of
+panel init plus 17.1 s of refresh. That is the dominant number in this project
+and the twice-daily wake design has not accounted for it. Deep sleep that
+retains the panel may be worth far more than the 92.5 µA figure suggests, since
+it is the *init* rather than the refresh that dominates.
+
+The 17.1 s refresh confirms the interaction decision from the other direction:
+the screen cannot answer a button press, so the guess gets an LED and a chirp
+and the reveal waits for 16:00.
+
 ## What is NOT done yet
 
 - **No board code at all.** No display, RTC, buttons, power, or `main`.

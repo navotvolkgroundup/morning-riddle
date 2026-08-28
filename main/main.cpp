@@ -63,6 +63,14 @@ extern "C" void app_main(void)
              (w == DL_CANVAS_W && h == DL_CANVAS_H) ? "" : "  <-- MISMATCH");
 
     M5.Display.setRotation(0);
+
+    // BATCH THE DRAWING. Without startWrite/endWrite every primitive can push
+    // its own panel update, and on Spectra 6 an update is a full-panel
+    // waveform of 15-30s. Six bars plus text then costs minutes: the bars
+    // appear one at a time and the code after them looks hung. Observed --
+    // four minutes with no panic and no watchdog, just drawing.
+    const int64_t t_draw = esp_timer_get_time();
+    M5.Display.startWrite();
     M5.Display.fillScreen(TFT_WHITE);
 
     // Spectra 6 is black, white, red, yellow, blue, green. Drawing all six as
@@ -91,6 +99,12 @@ extern "C" void app_main(void)
     M5.Display.setCursor(12, 60);
     M5.Display.printf("%dx%d  core OK (wday=%d)", w, h, wd);
 
+    // endWrite() is what pushes the panel, so THAT is what must be timed.
+    // The first version timed display() instead and reported 0 ms -- a
+    // measurement of nothing, taken after the work had already happened.
+    M5.Display.endWrite();
+    const int64_t push_ms = (esp_timer_get_time() - t_draw) / 1000;
+
     const int64_t t0 = esp_timer_get_time();
     M5.Display.display();
     const int64_t ms = (esp_timer_get_time() - t0) / 1000;
@@ -98,5 +112,6 @@ extern "C" void app_main(void)
     // The number that decides the interaction model. The design assumes a full
     // refresh is far too slow to answer a button press, and moved the reveal to
     // 16:00 because of it. Measure it rather than trusting the datasheet.
-    ESP_LOGI(TAG, "FULL REFRESH TOOK %lld ms", (long long)ms);
+    ESP_LOGI(TAG, "FULL REFRESH: draw+push %lld ms, trailing display() %lld ms",
+             (long long)push_ms, (long long)ms);
 }
