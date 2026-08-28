@@ -25,9 +25,10 @@ extern "C" {
 // the same side as the buttons they name, or the page silently instructs the
 // reader to press the wrong one.
 //
-// UNVERIFIED. On the Waveshare board this was guessed wrong first and only
-// settled by looking at the hardware. Check it here before anyone relies on it.
-#define PD_BUTTONS_ON_LEFT_EDGE 1
+// VERIFIED on hardware 2026-08-28: the buttons are on the RIGHT. Guessed left
+// first and it was wrong, which is exactly how it went on the Waveshare board
+// too -- this is not a thing to reason about, only to look at.
+#define PD_BUTTONS_ON_LEFT_EDGE 0
 
 struct page_daily_content {
     const char     *date;           // short date, ASCII, e.g. "27/08"
