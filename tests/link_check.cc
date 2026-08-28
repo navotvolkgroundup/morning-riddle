@@ -27,6 +27,7 @@
 #include "sd_json.h"
 #include "daily_layout.h"
 #include "he_text.h"
+#include "riddle_batch.h"
 
 #include <cstdio>
 
@@ -71,6 +72,8 @@ __attribute__((used)) void *const volatile kRefs[] = {
     (void *)he_advance,
     (void *)he_measure,
     (void *)he_line_break,
+
+    (void *)riddle_batch_parse,
 };
 
 }  // namespace

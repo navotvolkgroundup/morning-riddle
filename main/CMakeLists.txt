@@ -9,6 +9,7 @@ idf_component_register(
         "core/sd_json.c"
         "core/daily_layout.c"
         "core/he_text.c"
+        "core/riddle_batch.c"
         "ui/hebrew.cpp"
         "ui/page_daily.cpp"
         "board/wake.cpp"
@@ -17,6 +18,7 @@ idf_component_register(
         "board/sdcard.cpp"
         "board/net.cpp"
         "board/portal.cpp"
+        "board/batch.cpp"
     INCLUDE_DIRS
         "."
         "core"

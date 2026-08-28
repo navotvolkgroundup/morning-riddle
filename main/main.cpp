@@ -27,8 +27,11 @@ extern "C" {
 #include "sdcard.hpp"
 #include "net.hpp"
 #include "portal.hpp"
+#include "batch.hpp"
 
 static const char *TAG = "riddle";
+
+static riddle_batch_t s_batch;
 
 extern "C" void app_main(void)
 {
@@ -92,6 +95,10 @@ extern "C" void app_main(void)
             }
         } else {
             net_sync_time();
+            // Fetch while the radio is still up. Cache first: a network that
+            // is merely slow must not cost the morning's riddle.
+            static riddle_batch_t fetched;
+            if (batch_fetch(&fetched) > 0) s_batch = fetched;
             net_stop();
         }
     }
@@ -186,6 +193,9 @@ extern "C" void app_main(void)
     wx.temp_x10 = 274; wx.hi_x10 = 310; wx.lo_x10 = 220;
     wx.wmo = 0; wx.fetched_at = 1;      // ancient, so the "old" marker shows
 
+    // Real riddles if we have any, cached or freshly fetched.
+    if (s_batch.count == 0) batch_load(&s_batch);
+
     page_daily_content c = {};
     c.date       = "27/08";
     c.streak     = 4;
@@ -195,12 +205,22 @@ extern "C" void app_main(void)
     c.today      = 20692;               // 2026-08-27, a Thursday
     c.month      = 8; c.day = 27;
     c.now_utc    = 1788000000u;
-    c.question   = "\xd7\x9e\xd7\x94 \xd7\xa2\xd7\x95\xd7\x9c\xd7\x94 "
-                   "\xd7\x95\xd7\x9c\xd7\x90 \xd7\x99\xd7\x95\xd7\xa8\xd7\x93";
-    c.choices[0] = "\xd7\x92\xd7\x99\xd7\x9c";
-    c.choices[1] = "\xd7\x92\xd7\xa9\xd7\x9d";
-    c.choices[2] = "\xd7\xa9\xd7\x9e\xd7\xa9";
-    c.has_choices = true;
+    if (s_batch.count > 0) {
+        // Index comes from the state machine once the riddle is wired to the
+        // schedule; for now the first riddle proves the fetch end to end.
+        const riddle_item_t &r = s_batch.item[0];
+        c.question    = r.q;
+        c.choices[0]  = r.choices[0];
+        c.choices[1]  = r.choices[1];
+        c.choices[2]  = r.choices[2];
+        c.has_choices = r.has_choices;
+        ESP_LOGI(TAG, "showing riddle 0 of %d, choices=%d",
+                 s_batch.count, (int)r.has_choices);
+    } else {
+        // No batch at all: say so rather than drawing an empty page.
+        c.question    = "\xd7\x90\xd7\x99\xd7\x9f \xd7\x97\xd7\x99\xd7\x93\xd7\x95\xd7\xaa";  // "no riddles"
+        c.has_choices = false;
+    }
 
     const int64_t t_draw = esp_timer_get_time();
     page_daily_draw(c);

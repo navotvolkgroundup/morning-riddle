@@ -304,6 +304,37 @@ Portal → credentials in NVS → connect → NTP → RTC:
 That also retires the `day=20464` problem: the state machine had been
 self-consistent against a clock that had never been set.
 
+## Riddles
+
+`core/riddle_batch.c` parses the batch — pure, host-tested. On the Waveshare
+board this logic sat inside `page_riddle.cc` with `ESP_LOG` threaded through
+it, so none of its rules could be checked without hardware. Two are
+load-bearing:
+
+- **Choices that do not contain the answer make the game unwinnable** — every
+  guess would be marked wrong. Falls back to a plain reveal.
+- **One bad entry costs that entry, not the batch.** A missing answer among
+  thirty riddles should not cost the month.
+
+`board/batch.cpp` fetches over HTTPS and caches in NVS. The cache is the point:
+the board wakes twice a day, so re-fetching every wake would make the page
+depend on the network being up at 06:30 — and a morning with no riddle is the
+failure this design exists to prevent.
+
+It carries the 4096-byte header buffer from the outset, with the reason in a
+comment. GitHub's release redirect has a signed URL whose X-Amz signature alone
+overflows the 512-byte default; it fails as "Out of buffer" then a transport
+error, which reads as a network fault and is not one.
+
+**Verified on hardware:** `fetched 6790 bytes`, `batch holds 30 riddle(s)`,
+`showing riddle 0 of 30, choices=1`.
+
+**One bug worth remembering.** `riddle_batch_t` is ~19KB and the main task
+stack was 10KB, so a local variable overflowed it and corrupted the heap —
+surfacing as `assert failed: heap_caps_realloc_base ... realloc() pointer is
+outside heap areas` from inside cJSON, which points nowhere near the cause.
+The structures are static now and the stack is 24KB.
+
 ## What is NOT done yet
 
 - **No board code at all.** No display, RTC, buttons, power, or `main`.

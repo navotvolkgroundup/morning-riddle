@@ -19,6 +19,7 @@
 #include "sd_json.h"
 #include "daily_layout.h"
 #include "he_text.h"
+#include "riddle_batch.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -628,6 +629,90 @@ static int test_schedule_parse(void)
     return 0;
 }
 
+// ----------------------------------------------------------- riddle_batch ---
+//
+// These rules used to live inside page_riddle.cc with ESP_LOG threaded through
+// them, so none could be checked without a board. Each one is a decision.
+static int test_riddle_batch(void)
+{
+    riddle_batch_t b;
+
+    // A whole riddle, with choices that contain the answer.
+    const char *good =
+        "{\"riddles\":[{\"q\":\"Q1\",\"a\":\"sun\","
+        "\"choices\":[\"sun\",\"rain\",\"age\"],\"by\":\"dad\"}]}";
+    CHECK(riddle_batch_parse(good, &b) == 1);
+    CHECK(b.count == 1 && b.skipped == 0);
+    CHECK(strcmp(b.item[0].q, "Q1") == 0);
+    CHECK(strcmp(b.item[0].a, "sun") == 0);
+    CHECK(strcmp(b.item[0].by, "dad") == 0);
+    CHECK(b.item[0].has_choices);
+    CHECK(!b.item[0].weekend);
+
+    // THE UNWINNABLE-CHOICES GUARD. Three options none of which is the answer
+    // would mark every guess wrong. Fall back to a plain reveal instead.
+    const char *unwinnable =
+        "{\"riddles\":[{\"q\":\"Q\",\"a\":\"sun\","
+        "\"choices\":[\"rain\",\"age\",\"moon\"]}]}";
+    CHECK(riddle_batch_parse(unwinnable, &b) == 1);
+    CHECK(!b.item[0].has_choices);
+
+    // Wrong number of choices, or an empty one: same fallback, still usable.
+    const char *twoch = "{\"riddles\":[{\"q\":\"Q\",\"a\":\"x\",\"choices\":[\"x\",\"y\"]}]}";
+    CHECK(riddle_batch_parse(twoch, &b) == 1 && !b.item[0].has_choices);
+    const char *emptych =
+        "{\"riddles\":[{\"q\":\"Q\",\"a\":\"x\",\"choices\":[\"x\",\"\",\"z\"]}]}";
+    CHECK(riddle_batch_parse(emptych, &b) == 1 && !b.item[0].has_choices);
+
+    // An unknown type is skipped, not drawn as a riddle. The field exists so a
+    // future content type needs no schema migration.
+    const char *typed =
+        "{\"riddles\":[{\"type\":\"joke\",\"q\":\"J\",\"a\":\"A\"},"
+        "{\"type\":\"riddle\",\"q\":\"R\",\"a\":\"A\"}]}";
+    CHECK(riddle_batch_parse(typed, &b) == 1);
+    CHECK(b.skipped == 1 && strcmp(b.item[0].q, "R") == 0);
+
+    // ONE BAD ENTRY COSTS THAT ENTRY, NOT THE BATCH. A missing answer in the
+    // middle of thirty riddles should not cost the month.
+    const char *mixed =
+        "{\"riddles\":[{\"q\":\"A\",\"a\":\"1\"},{\"q\":\"no answer\"},"
+        "{\"q\":\"C\",\"a\":\"3\"}]}";
+    CHECK(riddle_batch_parse(mixed, &b) == 2);
+    CHECK(b.skipped == 1);
+    CHECK(strcmp(b.item[1].q, "C") == 0);
+
+    // weekend is carried through.
+    const char *wk = "{\"riddles\":[{\"q\":\"Q\",\"a\":\"A\",\"weekend\":true}]}";
+    CHECK(riddle_batch_parse(wk, &b) == 1 && b.item[0].weekend);
+
+    // Documents that are unusable as documents fail, and are distinguishable
+    // from an empty batch: -1 versus 0.
+    CHECK(riddle_batch_parse("not json", &b) == -1);
+    CHECK(riddle_batch_parse("{\"nope\":[]}", &b) == -1);
+    CHECK(riddle_batch_parse(NULL, &b) == -1);
+    CHECK(riddle_batch_parse("{\"riddles\":[]}", &b) == 0);
+
+    // An over-long question truncates rather than dropping the riddle: clipped
+    // is visible and survivable, missing is not.
+    static char big[RB_Q_MAX + 400];
+    int k = snprintf(big, sizeof big, "{\"riddles\":[{\"q\":\"");
+    for (int i = 0; i < RB_Q_MAX + 100; i++) big[k++] = 'x';
+    snprintf(big + k, sizeof big - k, "\",\"a\":\"A\"}]}");
+    CHECK(riddle_batch_parse(big, &b) == 1);
+    CHECK(strlen(b.item[0].q) == RB_Q_MAX - 1);
+
+    // The cap is honoured rather than overrunning the array.
+    static char many[8192];
+    k = snprintf(many, sizeof many, "{\"riddles\":[");
+    for (int i = 0; i < RB_MAX + 5; i++)
+        k += snprintf(many + k, sizeof many - k, "%s{\"q\":\"Q\",\"a\":\"A\"}",
+                      i ? "," : "");
+    snprintf(many + k, sizeof many - k, "]}");
+    CHECK(riddle_batch_parse(many, &b) == RB_MAX);
+
+    return 0;
+}
+
 // ---------------------------------------------------------------- he_text ---
 //
 // Word wrapping used to live inside hebrew.inc next to the pixel blitting, so
@@ -865,6 +950,7 @@ int main(void)
         { "sd_json",           test_sd_json },
         { "daily_layout",      test_daily_layout },
         { "he_text",           test_he_text },
+        { "riddle_batch",      test_riddle_batch },
     };
     for (unsigned i = 0; i < sizeof tests / sizeof tests[0]; i++) {
         if (tests[i].fn()) {

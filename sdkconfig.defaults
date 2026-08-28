@@ -25,7 +25,11 @@ CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_ENABLE=y
 
 # ===== ESP System Settings =====
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_160=y
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=10240
+# 24KB, not the reference's 10240. The batch structures are ~19KB each and
+# the drawing path is not shallow either. Overflow here does not announce
+# itself -- it corrupts the heap and surfaces as an unrelated assert inside
+# cJSON.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=24576
 CONFIG_ESP_MAIN_TASK_AFFINITY_CPU0=y
 
 # ===== Console: USB Serial/JTAG =====
