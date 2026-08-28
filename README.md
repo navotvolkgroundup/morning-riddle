@@ -238,6 +238,33 @@ keys the whole state machine, so a page recorded against an unsynced 1970 and a
 guess judged against the real date disagree — and every press is then correctly
 refused as "yesterday's screen", which looks exactly like a broken button.
 
+## SD card and network
+
+`board/sdcard.cpp` mounts the microSD on **SPI3** — M5GFX has already claimed
+SPI2 for the panel, and asking for it again returns `ESP_ERR_INVALID_STATE`.
+`format_if_mount_failed` is deliberately false: the card carries the only copy
+of the kids' names and the timetable, and reformatting after a bad read is data
+loss, not recovery.
+
+`board/net.cpp` takes **credentials from the card, never from the build**:
+
+    /sdcard/wifi.json   { "ssid": "...", "pass": "..." }
+
+This repository is public. A Kconfig option or a `#define` would put a home
+network password into git history where it cannot be taken back out. The SSID
+is logged; the password never is, at any level, and both are wiped from memory
+once the driver has its own copy. A template is in `docs/sdcard/`.
+
+NTP writes **both** the system clock and the RTC. The system clock dies with
+the power and this board deep-sleeps between wakes, so a sync that only set the
+system clock would be forgotten before it was ever used.
+
+Every step may fail — no card, no file, no network — and the page still draws
+from cache. Visibly stale beats blank.
+
+Verified on hardware: card mounts (14910 MB), and a missing `wifi.json` is
+reported as exactly that.
+
 ## What is NOT done yet
 
 - **No board code at all.** No display, RTC, buttons, power, or `main`.

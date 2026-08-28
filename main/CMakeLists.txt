@@ -14,6 +14,8 @@ idf_component_register(
         "board/wake.cpp"
         "board/feedback.cpp"
         "board/state.cpp"
+        "board/sdcard.cpp"
+        "board/net.cpp"
     INCLUDE_DIRS
         "."
         "core"
@@ -31,6 +33,11 @@ idf_component_register(
         json
         fatfs
         esp_driver_gpio
+        esp_driver_sdspi
+        esp_driver_spi
+        sdmmc
+        vfs
+        lwip
     EMBED_FILES
         "ui/font24HE.FON"
 )

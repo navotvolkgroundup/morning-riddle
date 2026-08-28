@@ -1,0 +1,5 @@
+{
+  "_comment": "Copy to the SD card root as wifi.json, with your own network. This file stays on the card and is never committed, never logged and never published -- net.cpp logs the SSID only, never the password, and wipes both from memory once the driver has its own copy. A public firmware repository is not a place for a home network password, which is why this is not a build-time option.",
+  "ssid": "your-network",
+  "pass": "your-password"
+}

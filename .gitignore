@@ -4,3 +4,7 @@ sdkconfig
 sdkconfig.old
 dependencies.lock
 managed_components/
+
+# Never commit real credentials, only the template in docs/sdcard/.
+wifi.json
+!docs/sdcard/wifi.json

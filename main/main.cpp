@@ -24,6 +24,8 @@ extern "C" {
 #include "wake.hpp"
 #include "feedback.hpp"
 #include "state.hpp"
+#include "sdcard.hpp"
+#include "net.hpp"
 
 static const char *TAG = "riddle";
 
@@ -52,6 +54,17 @@ extern "C" void app_main(void)
     M5.begin(cfg);
     ESP_LOGW(TAG, "M5.begin took %lld ms (clear_display=false)",
              (long long)((esp_timer_get_time() - t_begin) / 1000));
+
+    // Network first, so the clock below is the real one. All three steps are
+    // allowed to fail: no card, no credentials, no network. The page still
+    // draws from cache -- weather goes stale and the date may be wrong, which
+    // is visibly degraded rather than blank.
+    if (why != wake_cause::button) {
+        if (net_connect()) {
+            net_sync_time();
+            net_stop();
+        }
+    }
 
     // CLOCK FIRST, before anything asks what day it is. riddle_local_day()
     // keys the whole state machine, so a page recorded against an unsynced
