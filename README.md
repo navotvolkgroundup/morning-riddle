@@ -265,6 +265,45 @@ from cache. Visibly stale beats blank.
 Verified on hardware: card mounts (14910 MB), and a missing `wifi.json` is
 reported as exactly that.
 
+## G46 is a boot strapping pin, and it is the speaker enable
+
+The single worst bug of this port, and it was self-inflicted.
+
+`SPK_EN` on **G46** is also an **ESP32-S3 boot strapping pin**. Once the chirp
+enabled the amplifier, G46 stayed driven high — and every subsequent reset
+sampled it high and booted to `DOWNLOAD(USB/UART0)` instead of running the
+application. Only fully removing power let it settle.
+
+The board therefore appeared bricked for a long stretch: flashes verified
+every time, nothing ever ran, and no amount of resetting helped. Two buttons
+had genuinely stuck earlier in the day, so a hardware fault was the obvious
+story, and it was wrong — twice recommended as a warranty case on a working
+board.
+
+The boot line named the mechanism as soon as one was captured cleanly:
+
+    rst:0x3 (RTC_SW_SYS_RST), boot:0x21 (DOWNLOAD(USB/UART0))
+
+versus, after the fix:
+
+    rst:0x15 (USB_UART_CHIP_RESET), boot:0x2b (SPI_FAST_FLASH_BOOT)
+
+`feedback_settle()` now calls `M5.Speaker.end()` and releases G46 to input.
+
+**Worth checking for the same class of bug:** G0, G3, G45 and G46 are all
+strapping pins on this chip. Anything this design drives on one of them can
+reproduce this in a new disguise.
+
+## WiFi, verified
+
+Portal → credentials in NVS → connect → NTP → RTC:
+
+    net: got 10.100.102.120
+    net: RTC set to 2026-08-28 19:42:00 UTC
+
+That also retires the `day=20464` problem: the state machine had been
+self-consistent against a clock that had never been set.
+
 ## What is NOT done yet
 
 - **No board code at all.** No display, RTC, buttons, power, or `main`.

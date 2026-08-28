@@ -2,6 +2,7 @@
 
 #include <M5Unified.h>
 
+#include "driver/gpio.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -69,4 +70,17 @@ void feedback_settle()
     vTaskDelay(pdMS_TO_TICKS(kOnMs));
     led_set(0x00, 0x00, 0x00);
     vTaskDelay(pdMS_TO_TICKS(20));      // let the RMT frame clock out
+
+    // RELEASE THE AMPLIFIER ENABLE. G46 is SPK_EN on this board AND an
+    // ESP32-S3 boot strapping pin. Left driven high by the speaker, every
+    // subsequent reset samples it high and boots to DOWNLOAD mode instead of
+    // running the application -- only a full power removal clears it.
+    //
+    // That is not theoretical. It made this board appear permanently bricked
+    // for a long stretch: flashes verified, nothing ever ran, and the boot
+    // line read "rst:0x3 (RTC_SW_SYS_RST), boot:0x21 (DOWNLOAD)". The cause
+    // was this pin, held by the chirp that had just played.
+    M5.Speaker.end();
+    gpio_reset_pin(GPIO_NUM_46);
+    gpio_set_direction(GPIO_NUM_46, GPIO_MODE_INPUT);
 }
