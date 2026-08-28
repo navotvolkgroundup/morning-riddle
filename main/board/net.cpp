@@ -15,6 +15,7 @@
 #include "freertos/event_groups.h"
 
 #include "sdcard.hpp"
+#include "portal.hpp"
 
 extern "C" {
 #include "sd_json.h"
@@ -59,6 +60,15 @@ void on_ip(void *, esp_event_base_t, int32_t, void *data)
 // file is missing or malformed -- deliberately WITHOUT logging the password.
 bool read_credentials(char *ssid, size_t ssid_len, char *pass, size_t pass_len)
 {
+    // NVS FIRST. Credentials typed into the setup portal live here, and a
+    // device on a wall should not need its card pulled to change networks.
+    // The card stays as a fallback -- useful for provisioning a board before
+    // it is mounted, and for the data that genuinely belongs on a card.
+    if (portal_load_credentials(ssid, ssid_len, pass, pass_len)) {
+        ESP_LOGI(TAG, "credentials from NVS for \"%s\"", ssid);
+        return true;
+    }
+
     if (!sd_mount()) {
         ESP_LOGW(TAG, "no SD card, so no credentials");
         return false;
@@ -68,6 +78,7 @@ bool read_credentials(char *ssid, size_t ssid_len, char *pass, size_t pass_len)
     const sdj_status_e rd = sdj_read(kCredPath, buf, sizeof buf, nullptr);
     if (rd != SDJ_OK) {
         ESP_LOGW(TAG, "%s: %s", kCredPath, sdj_strerror(rd));
+        sd_list_root();          // say what IS there, not just what is not
         return false;
     }
 

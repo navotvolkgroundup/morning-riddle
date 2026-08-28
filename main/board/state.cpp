@@ -13,7 +13,9 @@ namespace {
 constexpr const char *kNamespace = "riddle";
 constexpr const char *kKey       = "state";
 
-bool nvs_ready()
+}  // namespace
+
+bool state_nvs_init()
 {
     static bool tried = false;
     static bool ok    = false;
@@ -34,15 +36,13 @@ bool nvs_ready()
     return ok;
 }
 
-}  // namespace
-
 bool state_load(riddle_nvs_t *st)
 {
     if (!st) return false;
     std::memset(st, 0, sizeof *st);
     st->guess = RIDDLE_NO_GUESS;        // zero would mean "chose A"
 
-    if (!nvs_ready()) return false;
+    if (!state_nvs_init()) return false;
 
     nvs_handle_t h;
     if (nvs_open(kNamespace, NVS_READONLY, &h) != ESP_OK) {
@@ -72,7 +72,7 @@ bool state_load(riddle_nvs_t *st)
 
 bool state_save(const riddle_nvs_t *st)
 {
-    if (!st || !nvs_ready()) return false;
+    if (!st || !state_nvs_init()) return false;
 
     nvs_handle_t h;
     if (nvs_open(kNamespace, NVS_READWRITE, &h) != ESP_OK) {

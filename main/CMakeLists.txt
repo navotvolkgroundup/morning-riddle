@@ -16,6 +16,7 @@ idf_component_register(
         "board/state.cpp"
         "board/sdcard.cpp"
         "board/net.cpp"
+        "board/portal.cpp"
     INCLUDE_DIRS
         "."
         "core"
@@ -38,6 +39,7 @@ idf_component_register(
         sdmmc
         vfs
         lwip
+        esp_http_server
     EMBED_FILES
         "ui/font24HE.FON"
 )

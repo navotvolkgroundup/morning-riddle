@@ -6,6 +6,8 @@
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
 
+#include <dirent.h>
+
 static const char *TAG = "sd";
 
 namespace {
@@ -71,9 +73,36 @@ bool sd_mount()
         return false;
     }
 
-    ESP_LOGI(TAG, "mounted %s, %lluMB", SD_MOUNT_POINT,
-             ((uint64_t)g_card->csd.capacity) * g_card->csd.sector_size / (1024 * 1024));
+    // Report the FILESYSTEM's size, not just the card's. The two disagree in
+    // the case that cost three boot cycles: an exFAT card reports its full
+    // block capacity here and then presents an empty root, so "mounted,
+    // 14910MB" looked like success while nothing could be read. A filesystem
+    // that reports 0 total bytes is not a filesystem this build understands.
+    uint64_t total = 0, freeb = 0;
+    const esp_err_t ferr = esp_vfs_fat_info(SD_MOUNT_POINT, &total, &freeb);
+    ESP_LOGI(TAG, "card %lluMB; filesystem %lluMB total, %lluMB free",
+             ((uint64_t)g_card->csd.capacity) * g_card->csd.sector_size / (1024 * 1024),
+             total / (1024 * 1024), freeb / (1024 * 1024));
+    if (ferr != ESP_OK || total == 0) {
+        ESP_LOGE(TAG, "the card mounted but has no readable filesystem -- "
+                      "format it as FAT32 (MS-DOS), not exFAT");
+    }
     return true;
+}
+
+void sd_list_root()
+{
+    if (!g_card) { ESP_LOGW(TAG, "not mounted"); return; }
+    DIR *d = opendir(SD_MOUNT_POINT);
+    if (!d) { ESP_LOGW(TAG, "cannot open %s", SD_MOUNT_POINT); return; }
+    ESP_LOGI(TAG, "contents of %s:", SD_MOUNT_POINT);
+    int n = 0;
+    for (struct dirent *e; (e = readdir(d)) != nullptr; ) {
+        ESP_LOGI(TAG, "  %s%s", e->d_name, (e->d_type == DT_DIR) ? "/" : "");
+        if (++n >= 32) { ESP_LOGI(TAG, "  ... (more)"); break; }
+    }
+    if (n == 0) ESP_LOGI(TAG, "  (empty)");
+    closedir(d);
 }
 
 void sd_unmount()

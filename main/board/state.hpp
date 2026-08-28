@@ -16,6 +16,14 @@ extern "C" {
 #include "riddle_decide.h"
 }
 
+// Initialises NVS, erasing and recreating it if it cannot be mounted.
+//
+// Call this ONCE, early, before anything else touches NVS -- including WiFi,
+// which fails with ESP_ERR_NVS_NOT_INITIALIZED and then abort()s inside
+// esp_wifi_init(). It used to happen lazily on the first state load, which is
+// after the network is brought up, so the portal boot-looped the board.
+bool state_nvs_init();
+
 // Loads the stored state, or zeroes it (RS_IDLE, day 0) when nothing is
 // stored. Returns false only if NVS itself is unavailable -- an absent key is
 // the normal first-boot case, not an error.

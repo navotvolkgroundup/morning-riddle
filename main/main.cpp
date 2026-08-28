@@ -26,6 +26,7 @@ extern "C" {
 #include "state.hpp"
 #include "sdcard.hpp"
 #include "net.hpp"
+#include "portal.hpp"
 
 static const char *TAG = "riddle";
 
@@ -55,12 +56,41 @@ extern "C" void app_main(void)
     ESP_LOGW(TAG, "M5.begin took %lld ms (clear_display=false)",
              (long long)((esp_timer_get_time() - t_begin) / 1000));
 
+    // NVS BEFORE THE NETWORK. esp_wifi_init() fails with
+    // ESP_ERR_NVS_NOT_INITIALIZED and then abort()s, and the WiFi stack is the
+    // first thing here that touches NVS. It used to be initialised lazily on
+    // the first state load -- which happens after this block, so the portal
+    // boot-looped the board.
+    state_nvs_init();
+
     // Network first, so the clock below is the real one. All three steps are
     // allowed to fail: no card, no credentials, no network. The page still
     // draws from cache -- weather goes stale and the date may be wrong, which
     // is visibly degraded rather than blank.
     if (why != wake_cause::button) {
-        if (net_connect()) {
+        if (!net_connect()) {
+            // No network. Put the setup instructions on the panel -- a board
+            // that silently fails to connect is indistinguishable from one
+            // that is simply slow, and there is nowhere else to say it.
+            M5.Display.startWrite();
+            M5.Display.fillScreen(TFT_WHITE);
+            M5.Display.setTextColor(TFT_BLACK);
+            M5.Display.setTextSize(2);
+            M5.Display.drawString("WiFi setup", 16, 40);
+            M5.Display.drawString("Join this network:", 16, 100);
+            M5.Display.setTextColor(TFT_RED);
+            M5.Display.drawString(PORTAL_AP_SSID, 16, 140);
+            M5.Display.setTextColor(TFT_BLACK);
+            M5.Display.drawString("then open", 16, 200);
+            M5.Display.drawString("192.168.4.1", 16, 240);
+            M5.Display.endWrite();
+            M5.Display.display();
+
+            if (portal_run()) {
+                // Straight back round: the credentials are in NVS now.
+                if (net_connect()) { net_sync_time(); net_stop(); }
+            }
+        } else {
             net_sync_time();
             net_stop();
         }

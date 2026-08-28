@@ -20,9 +20,10 @@
 
 #include <stdbool.h>
 
-// Brings up WiFi using credentials from the card. Returns false when the card,
-// the file or the network is missing -- all of which are survivable: the page
-// still draws from cache.
+// Brings up WiFi using stored credentials: NVS first (what the setup portal
+// writes), then /sdcard/wifi.json. Returns false when there are no
+// credentials or the network is unreachable -- both survivable, since the
+// page still draws from cache.
 bool net_connect(int timeout_ms = 20000);
 
 // Asks an NTP server for the time and writes it to BOTH the system clock and
