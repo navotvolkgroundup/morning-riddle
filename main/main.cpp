@@ -196,34 +196,75 @@ extern "C" void app_main(void)
     // Real riddles if we have any, cached or freshly fetched.
     if (s_batch.count == 0) batch_load(&s_batch);
 
+    // Ask the state machine what to show. It owns riddle selection: idx
+    // advances once per day and wraps at the batch size, with a double-fire
+    // guard so a second wake on the same day redraws rather than consuming
+    // another riddle.
+    static riddle_nvs_t st;
+    state_load(&st);
+
+    const time_t now_t = time(nullptr);
+    struct tm lt;
+    localtime_r(&now_t, &lt);
+
+    riddle_input_t in = {};
+    // An alarm wake knows which slot it is from the clock; anything else --
+    // a cold boot, a reflash -- is treated as a morning, which is idempotent
+    // within a day thanks to that guard.
+    in.reason  = (why == wake_cause::alarm && lt.tm_hour >= RIDDLE_REVEAL_HOUR)
+                     ? WAKE_AFTERNOON : WAKE_MORNING;
+    in.guess   = RIDDLE_NO_GUESS;
+    in.batch_n = (uint16_t)s_batch.count;      // the REAL count, not a stand-in
+    in.today   = riddle_local_day(now_t, RIDDLE_TZ);
+
+    const riddle_action_e act = riddle_decide(&in, &st);
+    state_save(&st);
+    ESP_LOGI(TAG, "action=%d idx=%u/%d state=%u streak=%u day=%ld",
+             (int)act, (unsigned)st.idx, s_batch.count, (unsigned)st.state,
+             (unsigned)st.streak, (long)st.day);
+
+
     page_daily_content c = {};
-    c.date       = "27/08";
-    c.streak     = 4;
+    static char datebuf[8];
+    // The %% 100 is not paranoia about the calendar: without it the compiler
+    // cannot prove tm_mday fits and -Werror=format-truncation fails the build.
+    // Growing the buffer only moves the error, as the Waveshare build found.
+    std::snprintf(datebuf, sizeof datebuf, "%02d/%02d",
+                  lt.tm_mday % 100, (lt.tm_mon + 1) % 100);
+    c.date       = datebuf;
+    c.streak     = st.streak;
     c.sched      = &sched;
     c.wx         = &wx;
     c.kids       = nullptr;             // no kids.json yet: those zones stay away
-    c.today      = 20692;               // 2026-08-27, a Thursday
-    c.month      = 8; c.day = 27;
-    c.now_utc    = 1788000000u;
-    if (s_batch.count > 0) {
-        // Index comes from the state machine once the riddle is wired to the
-        // schedule; for now the first riddle proves the fetch end to end.
-        const riddle_item_t &r = s_batch.item[0];
+    c.today      = in.today;
+    c.month      = lt.tm_mon + 1; c.day = lt.tm_mday;
+    c.now_utc    = (uint32_t)now_t;
+    if (s_batch.count > 0 && st.idx < s_batch.count) {
+        const riddle_item_t &r = s_batch.item[st.idx];
         c.question    = r.q;
         c.choices[0]  = r.choices[0];
         c.choices[1]  = r.choices[1];
         c.choices[2]  = r.choices[2];
         c.has_choices = r.has_choices;
-        ESP_LOGI(TAG, "showing riddle 0 of %d, choices=%d",
-                 s_batch.count, (int)r.has_choices);
+        c.answer      = r.a;
+        c.show_answer = (act == ACT_SHOW_ANSWER);
+        ESP_LOGI(TAG, "riddle %u of %d, choices=%d, reveal=%d",
+                 (unsigned)st.idx, s_batch.count, (int)r.has_choices,
+                 (int)c.show_answer);
     } else {
         // No batch at all: say so rather than drawing an empty page.
         c.question    = "\xd7\x90\xd7\x99\xd7\x9f \xd7\x97\xd7\x99\xd7\x93\xd7\x95\xd7\xaa";  // "no riddles"
         c.has_choices = false;
     }
 
+    // ACT_NONE means what is on the panel is already correct. Skipping the
+    // draw saves a 17-second full refresh and the power that goes with it --
+    // on a panel this slow, not redrawing is a feature.
+    if (act == ACT_NONE) {
+        ESP_LOGI(TAG, "nothing to redraw; leaving the panel alone");
+    }
     const int64_t t_draw = esp_timer_get_time();
-    page_daily_draw(c);
+    if (act != ACT_NONE) page_daily_draw(c);
     const int64_t push_ms = (esp_timer_get_time() - t_draw) / 1000;
 
     const int64_t t0 = esp_timer_get_time();
@@ -232,23 +273,6 @@ extern "C" void app_main(void)
 
     ESP_LOGI(TAG, "FULL REFRESH: draw+push %lld ms, trailing display() %lld ms",
              (long long)push_ms, (long long)ms);
-
-    // The page is up, so a guess is now legitimate. Without this the state
-    // stays RS_IDLE and every press is correctly refused -- the screen would
-    // show a riddle that the state machine does not believe exists.
-    {
-        riddle_nvs_t st;
-        state_load(&st);
-        riddle_input_t in = {};
-        in.reason  = WAKE_MORNING;
-        in.guess   = RIDDLE_NO_GUESS;
-        in.batch_n = 1;
-        in.today   = riddle_local_day(time(nullptr), RIDDLE_TZ);
-        const riddle_action_e act = riddle_decide(&in, &st);
-        ESP_LOGI(TAG, "page state: action=%d state=%u day=%ld",
-                 (int)act, (unsigned)st.state, (long)st.day);
-        state_save(&st);
-    }
 
     // BRING-UP DEMO. On USB the board stays awake and never takes the button
     // path, so this is the only way to see and hear the feedback hardware.

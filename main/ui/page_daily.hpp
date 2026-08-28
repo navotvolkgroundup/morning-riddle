@@ -43,6 +43,13 @@ struct page_daily_content {
     const char     *question;       // Hebrew, wrapped
     const char     *choices[3];     // Hebrew; ignored unless has_choices
     bool            has_choices;
+
+    // The 16:00 reveal. When set, the answer replaces the choices: a child
+    // reading the page after school wants the answer, and leaving three
+    // unpressable options under it invites another guess the board will
+    // refuse.
+    const char     *answer;
+    bool            show_answer;
 };
 
 // Draws the complete page into the framebuffer and pushes it once.

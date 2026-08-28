@@ -133,7 +133,15 @@ void page_daily_draw(const page_daily_content &c)
                              c.question ? c.question : "", 5);
     if (y < 0) y = L.riddle_top + 3 * (HE_H - 6);   // clamped; drew what it could
 
-    if (c.has_choices) {
+    if (c.show_answer && c.answer) {
+        y += 20;
+        M5.Display.drawFastHLine(DL_MARGIN_X, y, DL_CANVAS_W - 2 * DL_MARGIN_X,
+                                 TFT_BLACK);
+        y += 16;
+        // In red, and larger than the question was. This is the payoff the
+        // whole day builds to, and it should be readable across a room.
+        he::draw_line_rtl(m, DL_CANVAS_W - DL_MARGIN_X, y, c.answer, TFT_RED);
+    } else if (c.has_choices) {
         y += 12;
         for (int i = 0; i < 3; i++) {
             if (y + kChoiceH > DL_BODY_BOTTOM) break;

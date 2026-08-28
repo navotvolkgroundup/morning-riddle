@@ -335,6 +335,29 @@ surfacing as `assert failed: heap_caps_realloc_base ... realloc() pointer is
 outside heap areas` from inside cJSON, which points nowhere near the cause.
 The structures are static now and the stack is 24KB.
 
+## Selection and the reveal
+
+`riddle_decide()` owns which riddle is shown. `begin_day()` advances `idx` once
+per day and wraps at the batch size — a repeat is a mild disappointment, a
+blank wall reads as a broken device — with a double-fire guard so a second wake
+on the same day redraws rather than consuming another riddle.
+
+The board now passes it the **real** batch count and uses the index it returns,
+along with the real date and streak. An alarm wake picks its slot from the
+clock; anything else is treated as a morning, which is idempotent within a day
+because of that guard.
+
+**`ACT_NONE` skips the draw entirely.** When the state machine says the panel is
+already correct, not refreshing saves 17 seconds and the power with it. On a
+panel this slow, not redrawing is a feature.
+
+At 16:00 the answer replaces the choices rather than sitting under them: a
+child reading after school wants the answer, and leaving three unpressable
+options invites a guess the board will refuse.
+
+Verified on hardware: `day=20693` (the real date via NTP), `idx=0/30`, and a
+same-day reboot correctly kept `idx` rather than advancing.
+
 ## What is NOT done yet
 
 - **No board code at all.** No display, RTC, buttons, power, or `main`.
