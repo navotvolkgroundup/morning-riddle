@@ -11,10 +11,12 @@ idf_component_register(
         "core/he_text.c"
         "ui/hebrew.cpp"
         "ui/page_daily.cpp"
+        "board/wake.cpp"
     INCLUDE_DIRS
         "."
         "core"
         "ui"
+        "board"
     REQUIRES
         M5Unified
         M5GFX
@@ -26,6 +28,7 @@ idf_component_register(
         esp-tls
         json
         fatfs
+        esp_driver_gpio
     EMBED_FILES
         "ui/font24HE.FON"
 )

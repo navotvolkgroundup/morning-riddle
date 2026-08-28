@@ -21,6 +21,7 @@ extern "C" {
 
 #include "hebrew.hpp"
 #include "page_daily.hpp"
+#include "wake.hpp"
 
 static const char *TAG = "riddle";
 
@@ -30,6 +31,19 @@ extern "C" void app_main(void)
     // board that never reached app_main. Everything about this port's bring-up
     // has been guesswork for want of exactly this line.
     ESP_LOGW(TAG, "app_main entered");
+
+    // WAKE CAUSE BEFORE M5.begin(), always. M5.begin() costs 52.7 seconds of
+    // panel init, and a button press must be answered in milliseconds -- so a
+    // button wake takes the short path and never touches the display.
+    const wake_cause why = wake_why();
+    ESP_LOGW(TAG, "wake cause = %d, button = %d", (int)why, wake_button_index());
+    if (why == wake_cause::button) {
+        // Feedback (LED on G21, chirp on G46) and recording the guess belong
+        // here. Neither exists yet, so for now this only proves the short path
+        // is taken -- and proves it by NOT spending 52 seconds.
+        ESP_LOGW(TAG, "button wake: skipping the display entirely");
+        wake_sleep();
+    }
 
     auto cfg = M5.config();
     // Pin the board instead of trusting auto-detection. If detection fails the
@@ -105,4 +119,20 @@ extern "C" void app_main(void)
 
     ESP_LOGI(TAG, "FULL REFRESH: draw+push %lld ms, trailing display() %lld ms",
              (long long)push_ms, (long long)ms);
+
+    // The clock, then the alarm. Arming is verified by readback inside
+    // wake_arm_next -- a board that thinks it is armed and is not never wakes
+    // again and looks exactly like a working one.
+    wake_sync_clock();
+    int morning = 0;
+    if (!wake_arm_next(time(nullptr), &morning))
+        ESP_LOGE(TAG, "ALARM DID NOT ARM -- this board will not wake on its own");
+
+    // DEVELOPMENT GRACE PERIOD. A board that deep-sleeps the instant it
+    // finishes drawing is miserable to work on: every reflash needs the
+    // download-mode dance first. Thirty seconds is enough to catch it. Remove
+    // this when the interaction is finished and the device goes on a wall.
+    ESP_LOGW(TAG, "sleeping in 30s -- flash now if you want to");
+    vTaskDelay(pdMS_TO_TICKS(30000));
+    wake_sleep();
 }

@@ -163,6 +163,30 @@ same edge as the buttons they name, or the page tells the reader to press the
 wrong one. On the Waveshare board this was guessed wrong first and settled only
 by looking at the hardware. It needs the same check here.
 
+## Waking
+
+`board/wake.cpp`. The scheduling arithmetic is not there — `riddle_next_wake()`
+in `core/` computes the next 06:30 or 16:00 local with DST and is host-tested.
+M5Unified drives the RX8130CE directly, so there is no RTC driver to write.
+
+**The 52-second problem shapes this.** `M5.begin()` costs 52.7s of panel init
+and deep sleep does not avoid it — waking restarts the application. Fine twice
+a day when nobody is watching; unusable for a button press.
+
+So **wake cause is checked before `M5.begin()`**, and a button wake never
+touches the display: record the guess, fire the LED and chirp, sleep again.
+Milliseconds. The screen catches up at the next scheduled wake, which is what
+the design already decided when it moved the reveal to 16:00.
+
+Verified on hardware: cold boot → page drawn → `next wake 16:00 local, in 25498
+s` → alarm read back → sleep, and it stays asleep.
+
+**One bug worth remembering.** The first version cleared the RTC interrupt
+before a 30-second grace delay, so the board woke the instant it slept — an
+endless cycle that looks like a crash and flattens a battery. `wake_sleep()`
+now clears immediately before sleeping and logs the actual level of G7 first,
+because EXT1 wakes on low and sleeping with the line already low is a busy loop.
+
 ## What is NOT done yet
 
 - **No board code at all.** No display, RTC, buttons, power, or `main`.
