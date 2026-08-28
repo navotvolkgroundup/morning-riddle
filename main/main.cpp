@@ -23,8 +23,18 @@ static const char *TAG = "riddle";
 
 extern "C" void app_main(void)
 {
+    // Logged BEFORE anything else, so a silent board can be told apart from a
+    // board that never reached app_main. Everything about this port's bring-up
+    // has been guesswork for want of exactly this line.
+    ESP_LOGW(TAG, "app_main entered");
+
     auto cfg = M5.config();
+    // Pin the board instead of trusting auto-detection. If detection fails the
+    // display is never initialised and nothing draws -- silently, which is the
+    // symptom we have.
+    cfg.fallback_board = m5::board_t::board_M5PaperColor;
     M5.begin(cfg);
+    ESP_LOGW(TAG, "M5.begin returned, board=%d", (int)M5.getBoard());
 
     const int w = M5.Display.width();
     const int h = M5.Display.height();
@@ -45,8 +55,12 @@ extern "C" void app_main(void)
     daily_layout_t L;
     daily_flags_t f = { false, false, false, false };
     daily_layout(&f, &L);
-    ESP_LOGI(TAG, "daily_layout riddle_top=%d (PORTRAIT constants, wrong for "
-                  "this panel -- geometry is the next task)", L.riddle_top);
+    // NOTE: daily_layout is built for 600x400 LANDSCAPE, but the panel reports
+    // 400x600 -- it is natively portrait and the 600x400 in the product name
+    // is the rotated view. Which orientation the daily page uses is an open
+    // decision; until it is made, this number is geometry looking for a canvas.
+    ESP_LOGI(TAG, "daily_layout riddle_top=%d (layout is 600x400 landscape; "
+                  "panel reports %dx%d)", L.riddle_top, w, h);
 
     M5.Display.setRotation(0);
     M5.Display.fillScreen(TFT_WHITE);
