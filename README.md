@@ -96,7 +96,7 @@ eats the riddle.
 | | |
 |---|---|
 | `M5.begin()` | **464 ms** with `clear_display=false` (was 52.7 s with M5's own clear) |
-| Full refresh (draw + push) | **~1.96 s** in normal operation; **17.1 s** on the first refresh after a power cycle (see below) |
+| Full refresh (draw + push) | **~1.96 s**, consistently |
 | `display()` after `endWrite()` | 0 ms — the push already happened |
 | Board autodetect | `M5GFX: [Autodetect] board_M5PaperColor` at 933 ms |
 
@@ -373,11 +373,16 @@ Measured five ways in one boot, varying how much of the panel changes:
 Content is not the variable. Every earlier measurement was ~17100 ms, equally
 consistent.
 
-**Working hypothesis, not a conclusion:** the ~17 s figure was always the
-*first* refresh after a power cycle, and every later one is ~2 s. All the 17 s
-numbers were taken on boards that had just been unplugged and replugged; all
-the 2 s numbers follow warm resets. That fits, but it has not been tested —
-confirming it needs a power cycle followed immediately by a measurement.
+**A hypothesis, tested and wrong.** I supposed the ~17 s figure was the *first*
+refresh after a power cycle, with every later one at ~2 s — every 17 s number
+had followed an unplug-replug, every 2 s number a warm reset. Tested directly:
+the first refresh after a full power cycle is **1964 ms**.
+
+So the 17 s measurements remain **unexplained**. Something changed between
+those builds and these, and I cannot identify what. What is established is
+that the current firmware refreshes in ~2 s consistently — across content
+changes, warm resets and cold power cycles — and that is the number to design
+against.
 
 **This matters to the design.** The LED-and-chirp decision rests on "the screen
 cannot answer a button press", justified by 17 s. Two seconds is a different
