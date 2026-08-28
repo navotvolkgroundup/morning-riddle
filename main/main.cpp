@@ -22,6 +22,7 @@ extern "C" {
 #include "hebrew.hpp"
 #include "page_daily.hpp"
 #include "wake.hpp"
+#include "feedback.hpp"
 
 static const char *TAG = "riddle";
 
@@ -37,13 +38,6 @@ extern "C" void app_main(void)
     // button wake takes the short path and never touches the display.
     const wake_cause why = wake_why();
     ESP_LOGW(TAG, "wake cause = %d, button = %d", (int)why, wake_button_index());
-    if (why == wake_cause::button) {
-        // Feedback (LED on G21, chirp on G46) and recording the guess belong
-        // here. Neither exists yet, so for now this only proves the short path
-        // is taken -- and proves it by NOT spending 52 seconds.
-        ESP_LOGW(TAG, "button wake: skipping the display entirely");
-        wake_sleep();
-    }
 
     auto cfg = M5.config();
     // Pin the board instead of trusting auto-detection. If detection fails the
@@ -57,6 +51,24 @@ extern "C" void app_main(void)
     M5.begin(cfg);
     ESP_LOGW(TAG, "M5.begin took %lld ms (clear_display=false)",
              (long long)((esp_timer_get_time() - t_begin) / 1000));
+
+    // THE BUTTON SHORT PATH. A guess is acknowledged by the LED and a chirp
+    // and nothing else: the panel needs 17.1s and cannot answer a press, so
+    // the reveal waits for the 16:00 wake. This costs well under a second.
+    //
+    // M5.begin() is called first now -- at 464ms it is affordable, and it is
+    // what brings up the LED and the speaker. That was not true when
+    // M5.begin() appeared to cost 52.7s, which is why this path used to skip
+    // it entirely and had no way to acknowledge anything.
+    if (why == wake_cause::button) {
+        const int b = wake_button_index();
+        ESP_LOGW(TAG, "button wake: guess %d, no display", b);
+        feedback_guess(b);
+        // Recording the guess into NVS goes here once the riddle state is
+        // wired up; riddle_decide() already has the state machine for it.
+        feedback_settle();
+        wake_sleep();
+    }
     ESP_LOGW(TAG, "M5.begin returned, board=%d", (int)M5.getBoard());
 
     const int w = M5.Display.width();
@@ -125,6 +137,15 @@ extern "C" void app_main(void)
 
     ESP_LOGI(TAG, "FULL REFRESH: draw+push %lld ms, trailing display() %lld ms",
              (long long)push_ms, (long long)ms);
+
+    // BRING-UP DEMO. On USB the board stays awake and never takes the button
+    // path, so this is the only way to see and hear the feedback hardware.
+    // Remove once guesses are wired to real presses.
+    ESP_LOGW(TAG, "feedback demo: three guesses, then a rejection");
+    for (int i = 0; i < 3; i++) { feedback_guess(i); feedback_settle(); }
+    feedback_reject();
+    feedback_settle();
+    ESP_LOGW(TAG, "feedback demo done");
 
     // The clock, then the alarm. Arming is verified by readback inside
     // wake_arm_next -- a board that thinks it is armed and is not never wakes

@@ -190,6 +190,28 @@ endless cycle that looks like a crash and flattens a battery. `wake_sleep()`
 now clears immediately before sleeping and logs the actual level of G7 first,
 because EXT1 wakes on low and sleeping with the line already low is a busy loop.
 
+## Feedback: LED and chirp
+
+`board/feedback.cpp`. A guess is acknowledged by the RGB LED (WS2812 on G21,
+over RMT) and a note through the ES8311 codec — never by the screen, which
+needs 17.1 s and cannot answer a press. The reveal waits for the 16:00 wake.
+
+Colour **and** sound each carry the whole answer, and each choice is distinct:
+A blue/G5, B green/B5, C orange/D6, rejection red with a low two-note. A
+colour-blind reader or a noisy kitchen still gets it, and a child who presses B
+can tell the board heard B rather than merely that it heard something.
+
+Both come from M5Unified — no hand-rolled drivers. That only became possible
+once `cfg.clear_display=false` brought `M5.begin()` down to 464 ms and made it
+affordable on a button wake; at the apparent 52.7 s it was not, and the plan
+had been raw ES8311 register setup over I²S.
+
+`feedback_settle()` waits for the tone and clears the LED before sleeping.
+Deep sleep cuts RMT and I²S mid-output, which turns the chirp into a click and
+can leave the LED latched on — for hours, on a battery, with nobody watching.
+
+**Verified on hardware:** LED blinked and chirped, all four signals.
+
 ## What is NOT done yet
 
 - **No board code at all.** No display, RTC, buttons, power, or `main`.
