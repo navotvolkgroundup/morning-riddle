@@ -95,7 +95,7 @@ eats the riddle.
 
 | | |
 |---|---|
-| `M5.begin()` | **52.7 s** — Spectra 6 panel initialisation |
+| `M5.begin()` | **464 ms** with `clear_display=false` (was 52.7 s with M5's own clear) |
 | Full refresh (draw + push) | **17.1 s** |
 | `display()` after `endWrite()` | 0 ms — the push already happened |
 | Board autodetect | `M5GFX: [Autodetect] board_M5PaperColor` at 933 ms |
@@ -107,11 +107,14 @@ its own full-panel waveform. Six bars and two strings then take minutes: the
 bars appear one at a time and the code after them looks hung — observed as four
 minutes with no panic and no watchdog.
 
-**Cold boot costs about 70 seconds** before anything is on screen: 52.7 s of
-panel init plus 17.1 s of refresh. That is the dominant number in this project
-and the twice-daily wake design has not accounted for it. Deep sleep that
-retains the panel may be worth far more than the 92.5 µA figure suggests, since
-it is the *init* rather than the refresh that dominates.
+**`cfg.clear_display = false` is worth 52 seconds.** M5's own startup clear is
+a full-panel waveform, and the page fills the screen itself — so it was paid
+for and then immediately overwritten. Cold boot to a drawn page is about
+**17.6 s**, essentially all of it the one refresh that matters.
+
+This corrects an earlier claim in this file and in commit a61f361 that
+`M5.begin()` costs 52.7 s inherently. It does not; it costs 464 ms, and the
+rest was a clear nobody needed.
 
 The 17.1 s refresh confirms the interaction decision from the other direction:
 the screen cannot answer a button press, so the guess gets an LED and a chirp
