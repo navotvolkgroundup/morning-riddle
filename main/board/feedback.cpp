@@ -33,6 +33,28 @@ void led_set(uint8_t r, uint8_t g, uint8_t b)
 
 }  // namespace
 
+void feedback_alive()
+{
+    // THE ONLY PROOF-OF-LIFE THIS BOARD HAS LEFT.
+    //
+    // Serial is unusable: opening the port asserts DTR, which on
+    // USB-Serial-JTAG is wired to GPIO0, so every attempt to watch a boot
+    // forces the ROM bootloader instead of observing one. And the panel cannot
+    // be trusted either -- a "FULL REFRESH" that returns in ~1958 ms is very
+    // likely never reaching the glass, so an unchanged screen says nothing
+    // about whether the application ran.
+    //
+    // The LED is on G21 over RMT: no panel, no serial, no strapping pin. Three
+    // green blinks mean app_main got this far. Nothing else on this board can
+    // currently say that.
+    for (int i = 0; i < 3; i++) {
+        led_set(0x00, 0xC0, 0x30);
+        vTaskDelay(pdMS_TO_TICKS(120));
+        led_set(0x00, 0x00, 0x00);
+        vTaskDelay(pdMS_TO_TICKS(120));
+    }
+}
+
 void feedback_guess(int choice)
 {
     if (choice < 0 || choice > 2) { feedback_reject(); return; }

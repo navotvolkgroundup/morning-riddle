@@ -42,6 +42,11 @@ void feedback_reject();
 // off. Call before sleeping: deep sleep cuts the RMT and I2S mid-output, so
 // without this the chirp is a click and the LED may latch on and stay lit
 // until the next wake -- on a battery device, for hours.
+// Three green blinks: the application is running. Costs under a second and
+// depends on neither the panel nor the serial port, which is the entire point
+// -- see the comment on the definition.
+void feedback_alive();
+
 void feedback_settle();
 
 // Returns G45 and G46 to inputs. Both are strapping pins that M5.begin()

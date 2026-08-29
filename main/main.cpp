@@ -76,6 +76,11 @@ extern "C" void app_main(void)
     // and the board would draw its page once and then never boot again.
     if (why != wake_cause::button) feedback_release_straps();
 
+    // Proof of life, before anything that can fail. Everything after this line
+    // -- the card, the radio, the panel -- is allowed to go wrong quietly; this
+    // is the one signal that says the firmware itself is running.
+    feedback_alive();
+
     // The kids and the timetable, cache first then the card.
     //
     // BEFORE the radio, deliberately. The card mounted reliably when this
