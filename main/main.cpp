@@ -174,8 +174,25 @@ extern "C" void app_main(void)
     // gesture there is no way to get them onto a device on a wall at all. It
     // has to be a COLD boot with a button held -- a button WAKE is a guess,
     // and turning a child's answer into a setup screen would be a bad joke.
-    if (why == wake_cause::cold && wake_button_held()) {
-        ESP_LOGW(TAG, "button held at reset -- opening setup");
+    // A WINDOW, NOT AN INSTANT. This used to sample the buttons once, roughly
+    // half a second after power-on, which is an unreasonably precise moment to
+    // ask someone to be holding a button. It also loses to the board's own
+    // behaviour: pressing a button on a SLEEPING board wakes it as a guess
+    // first, so by the time the power press cold-boots, the finger is long off.
+    //
+    // Three seconds of polling makes the gesture "press power, then press any
+    // button" instead of "be holding a button at one exact instant". The cost
+    // is three seconds on a cold boot only -- not on the twice-daily alarm
+    // wakes, and not on a button wake, which is where speed actually matters.
+    bool want_setup = false;
+    if (why == wake_cause::cold) {
+        for (int i = 0; i < 60 && !want_setup; i++) {   // 60 x 50ms = 3s
+            want_setup = wake_button_held();
+            if (!want_setup) vTaskDelay(pdMS_TO_TICKS(50));
+        }
+    }
+    if (want_setup) {
+        ESP_LOGW(TAG, "button pressed during the setup window -- opening setup");
         M5.Display.startWrite();
         M5.Display.fillScreen(TFT_WHITE);
         M5.Display.setTextColor(TFT_BLACK);
