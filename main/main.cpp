@@ -177,7 +177,8 @@ extern "C" void app_main(void)
 
 
     // THE BUTTON SHORT PATH. A guess is acknowledged by the LED and a chirp
-    // and nothing else: the answer is withheld until the 13:00 wake, so a
+    // and nothing else. Two reasons, both sufficient: a full refresh on this
+    // panel is 15-30 s, and the answer is withheld until the 13:00 wake, so a
     // redraw could only repaint the same question. This costs well under a
     // second.
     //

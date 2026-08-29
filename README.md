@@ -96,7 +96,7 @@ eats the riddle.
 | | |
 |---|---|
 | `M5.begin()` | **464 ms** with `clear_display=false` (was 52.7 s with M5's own clear) |
-| Full refresh (draw + push) | **~1.96 s**, consistently |
+| Full refresh (draw + push) | **15-30 s** per the vendor; this tree once measured ~1.96 s, which was an artefact — see below |
 | `display()` after `endWrite()` | 0 ms — the push already happened |
 | Board autodetect | `M5GFX: [Autodetect] board_M5PaperColor` at 933 ms |
 
@@ -112,13 +112,18 @@ a full-panel waveform, and the page fills the screen itself — so it was paid
 for and then immediately overwritten. Cold boot to a drawn page is about
 **17.6 s**, essentially all of it the one refresh that matters.
 
+That last line sat directly under a table claiming the refresh was 1.96 s, in
+this file, for days. A cold boot cannot take 17.6 s and be "essentially all"
+of a 1.96 s refresh. The contradiction was on one screen and went unread.
+
 This corrects an earlier claim in this file and in commit a61f361 that
 `M5.begin()` costs 52.7 s inherently. It does not; it costs 464 ms, and the
 rest was a clear nobody needed.
 
-The interaction decision follows from the reveal, not from the refresh time:
-the answer is withheld until 13:00, so a redraw on a button press would repaint
-the whole panel to show nothing new. The guess gets an LED and a chirp instead.
+The interaction decision has two supports, and both hold: the panel is far too
+slow to answer a button press, and the answer is withheld until 13:00 anyway,
+so a redraw would repaint the whole panel to show nothing new. The guess gets
+an LED and a chirp instead.
 
 ## Hebrew
 
@@ -175,8 +180,8 @@ M5Unified drives the RX8130CE directly, so there is no RTC driver to write.
 **Wake cause is checked before `M5.begin()`**, because the short path decides
 whether to bring the display up at all. A button wake never touches it: record
 the guess, fire the LED and chirp, sleep again. Not because init is expensive —
-it is 464 ms — but because the answer is withheld until the reveal, so there is
-nothing new to draw. The screen catches up at the next scheduled wake.
+it is 464 ms — but because the refresh is 15-30 s and the answer is withheld
+until the reveal regardless. The screen catches up at the next scheduled wake.
 
 Verified on hardware: cold boot → page drawn → `next wake 13:00 local, in 25498
 s` → alarm read back → sleep, and it stays asleep.
@@ -191,8 +196,8 @@ because EXT1 wakes on low and sleeping with the line already low is a busy loop.
 
 `board/feedback.cpp`. A guess is acknowledged by the RGB LED (WS2812 on G21,
 over RMT) and a note through the ES8311 codec — never by the screen, which
-has nothing new to show until the 13:00 reveal and no partial update with which
-to show it.
+needs 15-30 s for a full refresh, has no partial update, and has nothing new to
+show until the 13:00 reveal anyway.
 
 Colour **and** sound each carry the whole answer, and each choice is distinct:
 A blue/G5, B green/B5, C orange/D6, rejection red with a low two-note. A
@@ -389,8 +394,8 @@ clock; anything else is treated as a morning, which is idempotent within a day
 because of that guard.
 
 **`ACT_NONE` skips the draw entirely.** When the state machine says the panel is
-already correct, not refreshing saves a full ~2 s waveform and the power with
-it.
+already correct, not refreshing saves a full ~17 s waveform and the power with
+it. On a panel this slow, not redrawing is a feature.
 
 At 13:00 the answer replaces the choices rather than sitting under them: a
 child reading after school wants the answer, and leaving three unpressable
@@ -399,9 +404,27 @@ options invites a guess the board will refuse.
 Verified on hardware: `day=20693` (the real date via NTP), `idx=0/30`, and a
 same-day reboot correctly kept `idx` rather than advancing.
 
-## The refresh is 2 seconds, not 17
+## The refresh is ~17 seconds, and my 2-second measurement is the bug
 
-Measured five ways in one boot, varying how much of the panel changes:
+**This section was wrong twice and is being corrected against outside
+evidence, not against another measurement of my own.**
+
+What the rest of the world reports for this exact panel:
+
+| source | figure |
+|---|---|
+| [M5Stack's own PaperColor docs](https://docs.m5stack.com/en/core/PaperColor) | 15-30 s, by colour complexity |
+| [PaperSatColor](https://github.com/prstoetzer/PaperSatColor), a dashboard on this board | "roughly 15-19 seconds" per redraw |
+| Hackster, LinuxGizmos on the Spectra 6 launch | double-digit seconds |
+
+**So the original ~17100 ms measurements were right.** They agreed with the
+vendor, with an independent project on the same hardware, and with the physics
+of a six-ink panel. I recorded them, then later measured ~1959 ms, and
+concluded the ~17 s figure was "unexplained" and ~2 s was "the number to design
+against." That was backwards: I treated my own anomalous reading as ground
+truth and the correct one as a mystery.
+
+What was actually measured at ~1959 ms:
 
 | trial | time |
 |---|---|
@@ -410,28 +433,39 @@ Measured five ways in one boot, varying how much of the panel changes:
 | all white (from black) | 1959 ms |
 | all white again (no change) | 1959 ms |
 | full page (from white) | 1959 ms |
+| first refresh after a full power cycle | 1964 ms |
 
-Content is not the variable. Every earlier measurement was ~17100 ms, equally
-consistent.
+Note what that table actually shows: **the time does not vary with content at
+all.** An all-white push, an all-black push, and a full page cost the same to
+within 20 ms, and a no-op redraw costs the same as a real one. A panel that is
+genuinely driving ink cannot be indifferent to how much ink moves; the vendor's
+own figure varies by colour complexity for exactly that reason. A constant
+~1959 ms is the signature of a call that returns without waiting for the
+waveform — a push that never reaches the glass.
 
-**A hypothesis, tested and wrong.** I supposed the ~17 s figure was the *first*
-refresh after a power cycle, with every later one at ~2 s — every 17 s number
-had followed an unplug-replug, every 2 s number a warm reset. Tested directly:
-the first refresh after a full power cycle is **1964 ms**.
+**That is very likely the same fault as the blank redraw.** The board currently
+draws a page, logs `FULL REFRESH: draw+push 1958 ms`, and leaves the panel
+showing a previous day's image. One fault explains both: the push is completing
+in software and not on the panel. The two were filed as separate mysteries for
+most of a day because the fast number had been written down as a success.
 
-So the 17 s measurements remain **unexplained**. Something changed between
-those builds and these, and I cannot identify what. What is established is
-that the current firmware refreshes in ~2 s consistently — across content
-changes, warm resets and cold power cycles — and that is the number to design
-against.
+**What this means for the design.** LED-and-chirp was originally justified by
+"the screen cannot answer a button press" at ~17 s. That argument is correct
+after all, and this file spent a commit dismantling it on bad data. The
+reveal-at-13:00 decision has two independent supports and always did: the panel
+genuinely is too slow to acknowledge a press, *and* the answer is deliberately
+withheld until the reveal, so a redraw would repaint the same question at full
+cost. Nothing about the interaction needs to change; only the reasoning in the
+comments, which is now corrected in `board/feedback.hpp`, `board/wake.hpp`,
+`ui/page_daily.hpp` and `main.cpp`.
 
-**This mattered to the design, and the design was re-argued.** LED-and-chirp
-was originally justified by "17 s is too long to answer a press". Two seconds is
-not, so that argument is gone. The decision stands on a different and better
-one: the answer is withheld until the reveal, so a redraw on a press has nothing
-new to display — it would cost a full-panel waveform to repaint the same
-question. The acknowledgement has to come from something other than the screen
-because the screen has nothing to say, not because it is slow.
+**Method note, since this cost real time.** Two of the three wrong turns here
+came from trusting a single self-produced number over an obvious sanity check.
+A refresh time that does not change with content, and a board that reports a
+successful draw while showing yesterday's screen, were each enough to falsify
+the ~2 s reading on the spot. Neither was checked against anything outside this
+repository until a search of the last thirty days of M5Paper discussion turned
+up the vendor's own figure in about a minute.
 
 ## What is NOT done yet
 
@@ -450,6 +484,14 @@ because the screen has nothing to say, not because it is slow.
   Waveshare-specific artefacts that do not exist here. Both caught real bugs
   and both need equivalents once the M5GFX drawing and M5Unified button paths
   exist. Until then `wmo_icon()` is tested but unused.
-- **The ~17100 ms refresh measurements are unexplained.** They were consistent
-  across many boots with the same timing code. The current firmware is ~2 s,
-  equally consistently. Something changed and it is not known what.
+- **The panel is not actually refreshing.** The firmware reports
+  `FULL REFRESH: draw+push ~1958 ms` and the screen keeps a previous day's
+  image. ~1958 ms is about a ninth of this panel's real refresh time and does
+  not vary with content, so the push is almost certainly returning without
+  driving the waveform. This is the top open bug.
+- **The board boots into the ROM bootloader.** `esptool` syncs with
+  `--before no_reset` after a full power-off, so the strapping is being sampled
+  as DOWNLOAD at power-on, before any firmware runs. G45/G46 are the documented
+  suspects — Espressif states GPIO46 high with GPIO0 low is an invalid
+  combination — but a driven pin should not survive a cold boot, so something
+  external is holding it.

@@ -55,7 +55,7 @@ struct page_daily_content {
 // Draws the complete page into the framebuffer and pushes it once.
 //
 // ONE push. Every primitive can trigger its own full-panel waveform otherwise,
-// and a waveform is ~2 seconds -- a page drawn unbatched takes minutes and
+// and a waveform is ~17 seconds -- a page drawn unbatched takes hours and
 // looks like a hang.
 void page_daily_draw(const page_daily_content &c);
 

@@ -8,17 +8,19 @@
 // WHY WAKE CAUSE IS CHECKED FIRST
 // -------------------------------------------------------------------------
 //
-// Historical note, because the comments here used to say otherwise: M5.begin()
-// was measured at 52.7 s and a refresh at 17.1 s. BOTH numbers were wrong.
-// M5.begin() costs 464 ms once cfg.clear_display is false, and a full refresh
-// is ~2 s. Deep sleep restarts the application, so every wake that initialises
-// the display pays that, and it is affordable.
+// Historical note, because these comments have been wrong in both directions:
+// M5.begin() was measured at 52.7 s, which WAS wrong -- it costs 464 ms once
+// cfg.clear_display is false. A refresh was measured at 17.1 s, which was
+// RIGHT: M5Stack's own docs give 15-30 s for this panel and an independent
+// project on the same board reports 15-19 s. A later ~2 s measurement here was
+// the anomaly, and this file briefly rewrote the design rationale around it.
 //
-// A BUTTON wake still does not touch the panel, but for a design reason rather
-// than a timing one: the answer is withheld until the 13:00 reveal, so a redraw
-// would repaint the whole page to show the same question. The press records the
-// guess, fires the LED and the chirp, and goes back to sleep. The screen catches
-// up at the next scheduled wake.
+// So a BUTTON wake does not touch the panel for two independent reasons, and
+// both hold: the panel is far too slow to acknowledge a press, AND the answer
+// is withheld until the 13:00 reveal, so a redraw would repaint the whole page
+// to show the same question. The press records the guess, fires the LED and the
+// chirp, and goes back to sleep. The screen catches up at the next scheduled
+// wake.
 //
 // wake_why() must still be called BEFORE M5.begin() -- the short path decides
 // whether to bring the display up at all -- and it depends on nothing that
