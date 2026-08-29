@@ -62,6 +62,20 @@ extern "C" void app_main(void)
     ESP_LOGW(TAG, "M5.begin took %lld ms (clear_display=false)",
              (long long)((esp_timer_get_time() - t_begin) / 1000));
 
+    // RELEASE THE AUDIO STRAPPING PINS IMMEDIATELY unless we are about to
+    // chirp. M5.begin() drives G45 and G46 high for the codec, and both are
+    // boot strapping pins -- leaving them driven means the NEXT reset lands in
+    // DOWNLOAD mode instead of running this application.
+    //
+    // The page path never makes a sound, so it has no reason to hold them for
+    // even a moment. The button path needs the speaker and releases them in
+    // feedback_settle() once the chirp has finished.
+    //
+    // This line is here because its absence cost most of a day: the fix
+    // existed, on the button path only, so every ordinary boot armed the trap
+    // and the board would draw its page once and then never boot again.
+    if (why != wake_cause::button) feedback_release_straps();
+
     // The kids and the timetable, cache first then the card.
     //
     // BEFORE the radio, deliberately. The card mounted reliably when this

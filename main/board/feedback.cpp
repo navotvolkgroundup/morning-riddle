@@ -71,16 +71,35 @@ void feedback_settle()
     led_set(0x00, 0x00, 0x00);
     vTaskDelay(pdMS_TO_TICKS(20));      // let the RMT frame clock out
 
-    // RELEASE THE AMPLIFIER ENABLE. G46 is SPK_EN on this board AND an
-    // ESP32-S3 boot strapping pin. Left driven high by the speaker, every
-    // subsequent reset samples it high and boots to DOWNLOAD mode instead of
-    // running the application -- only a full power removal clears it.
+    feedback_release_straps();
+}
+
+void feedback_release_straps()
+{
+    // RELEASE BOTH AUDIO ENABLES. M5Unified drives G45 (codec enable) and G46
+    // (speaker enable) as outputs and takes them HIGH whenever the speaker is
+    // enabled -- M5Unified.cpp:529-548. BOTH are ESP32-S3 boot strapping pins.
+    // Left driven, the next reset samples them and boots to DOWNLOAD mode
+    // instead of running the application, and only a full power removal
+    // clears it.
     //
-    // That is not theoretical. It made this board appear permanently bricked
-    // for a long stretch: flashes verified, nothing ever ran, and the boot
-    // line read "rst:0x3 (RTC_SW_SYS_RST), boot:0x21 (DOWNLOAD)". The cause
-    // was this pin, held by the chirp that had just played.
+    // That is not theoretical, and it has now happened twice. The first time
+    // it made the board appear permanently bricked: flashes verified, nothing
+    // ever ran, boot line "rst:0x3 (RTC_SW_SYS_RST), boot:0x21 (DOWNLOAD)".
+    //
+    // The second time was worse, because the fix was already written and only
+    // half applied. This ran on the button path alone, and it released G46
+    // alone. So every ORDINARY boot -- the one that draws the page, twice a
+    // day, every day -- left both pins driven and armed the trap for the next
+    // reset. A power cycle bought exactly one good boot, which re-armed it.
+    // The symptom was a board that drew its page once and then refused to boot
+    // again, which looks nothing like an audio bug.
+    //
+    // So this is its own function, it takes both pins, and main.cpp calls it
+    // on EVERY path rather than only the one that makes a noise.
     M5.Speaker.end();
-    gpio_reset_pin(GPIO_NUM_46);
-    gpio_set_direction(GPIO_NUM_46, GPIO_MODE_INPUT);
+    for (gpio_num_t pin : { GPIO_NUM_45, GPIO_NUM_46 }) {
+        gpio_reset_pin(pin);
+        gpio_set_direction(pin, GPIO_MODE_INPUT);
+    }
 }

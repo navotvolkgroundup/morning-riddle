@@ -37,4 +37,10 @@ void feedback_reject();
 // until the next wake -- on a battery device, for hours.
 void feedback_settle();
 
+// Returns G45 and G46 to inputs. Both are strapping pins that M5.begin()
+// drives high for the audio codec, so a board that leaves them driven boots to
+// DOWNLOAD mode on its next reset. Call this on every path that will not chirp
+// -- feedback_settle() already ends with it.
+void feedback_release_straps();
+
 #endif // BOARD_FEEDBACK_HPP
