@@ -4,7 +4,10 @@
 
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "driver/usb_serial_jtag.h"
 #include "esp_sleep.h"
+
+#include "state.hpp"
 
 extern "C" {
 #include "riddle_decide.h"
@@ -118,10 +121,24 @@ void wake_clear_alarm()
 
 bool wake_usb_present()
 {
-    // ~4.0V is comfortably above a charged cell and below real VBUS, so it
-    // separates the two without needing the PMIC's status bits.
-    const int16_t mv = M5.Power.getVBUSVoltage();
-    return mv > 4000;
+    // ASK THE USB PERIPHERAL, NOT THE PMIC.
+    //
+    // This used to read M5.Power.getVBUSVoltage() and call anything over
+    // 4000mV "cabled". On this board that call reads PM1 registers 0x24/0x25,
+    // which are VIN -- the SYSTEM input rail, boosted from the battery. It
+    // reports ~5040mV with no cable attached at all, so the test was true
+    // always and the board NEVER SLEPT. Measured on battery: VBUS=5040mV,
+    // button held=no, reached deep sleep: NO.
+    //
+    // That is not a small bug. A device on a wall that never sleeps misses
+    // every scheduled wake and flattens its cell in about a day, and none of
+    // it is visible over USB because a cabled board is supposed to stay awake.
+    //
+    // usb_serial_jtag_is_connected() watches for host SOF packets, which is
+    // the actual question being asked: is a host attached that we should stay
+    // flashable for. It assumes connected until a few ticks pass with no SOF,
+    // and this runs tens of seconds into the boot, so it has long settled.
+    return usb_serial_jtag_is_connected();
 }
 
 bool wake_button_held()
@@ -136,6 +153,13 @@ bool wake_button_held()
 
 bool wake_sleep_if_safe()
 {
+    // Record the inputs to this decision before acting on them. On battery
+    // there is no serial, so a refusal is otherwise silent -- and "the board
+    // never slept" is indistinguishable from "the board slept and did not
+    // wake" without it.
+    const int16_t vbus = M5.Power.getVBUSVoltage();
+    state_note_awake((int)vbus, wake_button_held());
+
     if (wake_usb_present()) {
         ESP_LOGW(TAG, "USB attached; staying awake so the board stays flashable");
         return false;
@@ -149,6 +173,11 @@ bool wake_sleep_if_safe()
 
 void wake_sleep()
 {
+    // Record the attempt BEFORE sleeping. If the next boot reports a cold
+    // cause with "reached deep sleep: YES", the board slept and something
+    // other than an EXT1 button woke it -- most likely a full power-down.
+    state_note_sleeping();
+
     // Clear here, not earlier: anything between the clear and the sleep can
     // let the line assert again. The first version cleared before a 30-second
     // delay and the board woke the instant it slept.

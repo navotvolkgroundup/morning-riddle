@@ -54,6 +54,10 @@ extern "C" void app_main(void)
     const wake_cause why = wake_why();
     ESP_LOGW(TAG, "wake cause = %d, button = %d", (int)why, wake_button_index());
 
+    // Carry this across to the next cabled boot. A battery wake has no serial
+    // port, so otherwise the guess path can only ever be tested by inference.
+    state_note_wake((int)why, wake_button_index());
+
     auto cfg = M5.config();
     // Pin the board instead of trusting auto-detection. If detection fails the
     // display is never initialised and nothing draws -- silently, which is the

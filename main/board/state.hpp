@@ -33,6 +33,27 @@ bool state_nvs_init();
 // bytes changed, the application ran. Nothing else currently proves that.
 uint32_t state_bump_boot_count();
 
+// Records why this boot happened, and reports what the PREVIOUS boot recorded.
+//
+// A battery wake has no serial port -- USB-JTAG is gone with the cable -- so
+// the one boot that matters most, the button press a child actually makes, is
+// invisible. This carries its wake cause across to the next cabled boot, where
+// it can be read. Without it the guess path can only be tested by inference.
+void state_note_wake(int cause, int button);
+
+// Marks that wake_sleep() was reached and deep sleep was actually entered.
+// Cleared by state_note_wake() on the next boot, which reports it. Together
+// they answer the only question a battery test can otherwise not answer: did
+// the board sleep and fail to wake on the button, or never sleep at all?
+void state_note_sleeping();
+
+// Records why the board chose to stay awake instead of sleeping: the VBUS
+// reading in millivolts and whether a button read as held. Reported on the
+// next cabled boot. On battery there is no serial, so a refusal to sleep is
+// otherwise completely silent -- and a board that never sleeps flattens its
+// cell overnight without ever saying why.
+void state_note_awake(int vbus_mv, bool button_held);
+
 // Loads the stored state, or zeroes it (RS_IDLE, day 0) when nothing is
 // stored. Returns false only if NVS itself is unavailable -- an absent key is
 // the normal first-boot case, not an error.

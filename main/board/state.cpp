@@ -36,6 +36,58 @@ bool state_nvs_init()
     return ok;
 }
 
+void state_note_sleeping()
+{
+    if (!state_nvs_init()) return;
+    nvs_handle_t h;
+    if (nvs_open(kNamespace, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_u8(h, "slept", 1);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+void state_note_awake(int vbus_mv, bool button_held)
+{
+    if (!state_nvs_init()) return;
+    nvs_handle_t h;
+    if (nvs_open(kNamespace, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_i16(h, "awvbus", (int16_t)vbus_mv);
+    nvs_set_u8(h, "awbtn", button_held ? 1 : 0);
+    nvs_set_u8(h, "awake", 1);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+void state_note_wake(int cause, int button)
+{
+    if (!state_nvs_init()) return;
+    nvs_handle_t h;
+    if (nvs_open(kNamespace, NVS_READWRITE, &h) != ESP_OK) return;
+
+    uint8_t prev_cause = 255, prev_btn = 255, slept = 0;
+    nvs_get_u8(h, "lastcause", &prev_cause);
+    nvs_get_u8(h, "lastbtn", &prev_btn);
+    nvs_get_u8(h, "slept", &slept);
+    uint8_t awake = 0, awbtn = 0; int16_t awvbus = -1;
+    nvs_get_u8(h, "awake", &awake);
+    nvs_get_u8(h, "awbtn", &awbtn);
+    nvs_get_i16(h, "awvbus", &awvbus);
+    ESP_LOGW(TAG, "PREVIOUS boot: cause=%d button=%d, reached deep sleep: %s",
+             (int)(int8_t)prev_cause, (int)(int8_t)prev_btn, slept ? "YES" : "NO");
+    if (!slept)
+        ESP_LOGW(TAG, "  it refused to sleep: reached the decision=%s, "
+                      "VBUS=%dmV, button held=%s",
+                 awake ? "YES" : "NO (never got there)",
+                 (int)awvbus, awbtn ? "YES" : "no");
+    nvs_set_u8(h, "slept", 0);
+    nvs_set_u8(h, "awake", 0);
+
+    nvs_set_u8(h, "lastcause", (uint8_t)cause);
+    nvs_set_u8(h, "lastbtn", (uint8_t)(int8_t)button);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
 uint32_t state_bump_boot_count()
 {
     if (!state_nvs_init()) return 0;

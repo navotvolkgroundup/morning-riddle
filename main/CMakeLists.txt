@@ -39,6 +39,7 @@ idf_component_register(
         json
         fatfs
         esp_driver_gpio
+        esp_driver_usb_serial_jtag
         esp_driver_sdspi
         esp_driver_spi
         sdmmc
