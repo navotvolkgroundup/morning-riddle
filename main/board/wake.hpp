@@ -1,29 +1,28 @@
 // Waking, sleeping, and the RTC alarm.
 //
 // The scheduling arithmetic is NOT here: riddle_next_wake() in core/ computes
-// the next 06:30 or 16:00 local, handles DST, and is tested on the host. This
+// the next 06:30 or 13:00 local, handles DST, and is tested on the host. This
 // file only talks to hardware.
 //
 // -------------------------------------------------------------------------
-// THE 52-SECOND PROBLEM, AND WHY WAKE CAUSE IS CHECKED FIRST
+// WHY WAKE CAUSE IS CHECKED FIRST
 // -------------------------------------------------------------------------
 //
-// M5.begin() takes 52.7 seconds on this board -- Spectra 6 panel
-// initialisation, measured, not estimated. A full refresh is another 17.1.
-// Deep sleep does not avoid it: waking restarts the application, so every
-// wake that initialises the display pays ~70 seconds.
+// Historical note, because the comments here used to say otherwise: M5.begin()
+// was measured at 52.7 s and a refresh at 17.1 s. BOTH numbers were wrong.
+// M5.begin() costs 464 ms once cfg.clear_display is false, and a full refresh
+// is ~2 s. Deep sleep restarts the application, so every wake that initialises
+// the display pays that, and it is affordable.
 //
-// That is fine twice a day at 06:30 and 16:00, when nobody is watching the
-// page appear. It is unusable for a button press: a child pressing a guess
-// cannot wait 70 seconds for acknowledgement.
+// A BUTTON wake still does not touch the panel, but for a design reason rather
+// than a timing one: the answer is withheld until the 13:00 reveal, so a redraw
+// would repaint the whole page to show the same question. The press records the
+// guess, fires the LED and the chirp, and goes back to sleep. The screen catches
+// up at the next scheduled wake.
 //
-// So a BUTTON wake must never call M5.begin(). It records the guess, fires the
-// LED and the chirp, and goes straight back to sleep -- milliseconds, no panel
-// touched. The screen catches up at the next scheduled wake, which is exactly
-// what the design decided when it moved the reveal to 16:00.
-//
-// This is why wake_why() must be called BEFORE M5.begin(), and why it depends
-// on nothing that M5.begin() sets up.
+// wake_why() must still be called BEFORE M5.begin() -- the short path decides
+// whether to bring the display up at all -- and it depends on nothing that
+// M5.begin() sets up.
 
 #ifndef BOARD_WAKE_HPP
 #define BOARD_WAKE_HPP
@@ -55,7 +54,7 @@ int wake_button_index();
 // Copies the RTC into the system clock. Requires M5.begin().
 bool wake_sync_clock();
 
-// Arms the RTC for the next 06:30 or 16:00 local, and READS IT BACK.
+// Arms the RTC for the next 06:30 or 13:00 local, and READS IT BACK.
 //
 // Returns false if the alarm did not verify. A board that thinks it is armed
 // and is not simply never wakes again, and looks identical to a working one --

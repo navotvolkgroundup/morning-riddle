@@ -145,7 +145,7 @@ riddle_action_e riddle_decide(const riddle_input_t *in, riddle_nvs_t *st)
 
     case WAKE_GUESS:
         // Late guesses are ignored, which is what closes the 15:59:58 race:
-        // whichever of the guess and the 16:00 alarm commits first wins, and
+        // whichever of the guess and the 13:00 alarm commits first wins, and
         // the loser is a no-op rather than a contradictory redraw.
         if (st->state != RS_QUESTION_SHOWN) return ACT_NONE;
         if (st->day != in->today)           return ACT_NONE;  // stale screen

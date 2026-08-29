@@ -75,9 +75,9 @@ static int test_schedule(void)
 {
     int morning = -1;
 
-    // Mid-summer (IDT, UTC+3): 05:00Z is 08:00 local, past 06:30, so 16:00.
+    // Mid-summer (IDT, UTC+3): 05:00Z is 08:00 local, past 06:30, so 13:00.
     time_t got = riddle_next_wake(utc_at(2026, 7, 1, 5, 0), RIDDLE_TZ, &morning);
-    CHECK(got == utc_at(2026, 7, 1, 13, 0));       // 16:00 IDT
+    CHECK(got == utc_at(2026, 7, 1, 10, 0));       // 13:00 IDT
     CHECK(morning == 0);
 
     // After the afternoon slot, roll to tomorrow morning.
@@ -85,10 +85,10 @@ static int test_schedule(void)
     CHECK(got == utc_at(2026, 7, 2, 3, 30));
     CHECK(morning == 1);
 
-    // Exactly on the morning instant: strictly-after, so we get 16:00, not the
+    // Exactly on the morning instant: strictly-after, so we get 13:00, not the
     // same second again. An alarm that re-arms for now would spin.
     got = riddle_next_wake(utc_at(2026, 7, 1, 3, 30), RIDDLE_TZ, &morning);
-    CHECK(got == utc_at(2026, 7, 1, 13, 0));
+    CHECK(got == utc_at(2026, 7, 1, 10, 0));
 
     // Year boundary: the day key must keep increasing across it.
     int32_t d31 = riddle_local_day(utc_at(2026, 12, 31, 12, 0), RIDDLE_TZ);
@@ -142,7 +142,7 @@ static int test_state(void)
     CHECK(riddle_decide(&g, &st) == ACT_NONE);
     CHECK(st.streak == 1);
 
-    // 16:00 reveals, knowing a guess was made.
+    // 13:00 reveals, knowing a guess was made.
     riddle_input_t pm = IN(WAKE_AFTERNOON, 100, RIDDLE_NO_GUESS, 30);
     CHECK(riddle_decide(&pm, &st) == ACT_SHOW_ANSWER);
     CHECK(st.state == RS_ANSWER_SHOWN);
@@ -190,7 +190,7 @@ static int test_state_edges(void)
     CHECK(riddle_decide(&empty, &st) == ACT_SHOW_QUESTION);
     CHECK(st.idx == 3);
 
-    // 16:00 with no morning at all (board was off): show the riddle, not an
+    // 13:00 with no morning at all (board was off): show the riddle, not an
     // orphan answer to a question nobody saw.
     memset(&st, 0, sizeof st);
     st.state = RS_IDLE; st.guess = RIDDLE_NO_GUESS;
@@ -402,7 +402,7 @@ static int test_kids_callout(void)
 {
     kids_t k = KIDS(2);
 
-    // Deterministic per day. The morning draw, an early reveal and the 16:00
+    // Deterministic per day. The morning draw, an early reveal and the 13:00
     // draw are three separate calls on one day; if they disagreed, the screen
     // would greet a different kid each time.
     for (int32_t d = 0; d < 500; d++)
@@ -535,7 +535,7 @@ static int test_weather_staleness(void)
     // The two intervals that actually occur, and the threshold sits between.
     w.fetched_at = 100000;
     CHECK(!weather_is_stale(&w, 100000 + 1));
-    CHECK(!weather_is_stale(&w, 100000 + (uint32_t)(9.5 * 3600)));  // 06:30 -> 16:00
+    CHECK(!weather_is_stale(&w, 100000 + (uint32_t)(6.5 * 3600)));  // 06:30 -> 13:00
     CHECK(weather_is_stale(&w, 100000 + 24 * 3600));                // next morning, fetch failed
     CHECK(!weather_is_stale(&w, 100000 + WEATHER_STALE_SECS));      // boundary is inclusive
     CHECK(weather_is_stale(&w, 100000 + WEATHER_STALE_SECS + 1));

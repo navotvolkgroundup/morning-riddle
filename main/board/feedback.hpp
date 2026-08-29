@@ -1,11 +1,12 @@
 // Instant acknowledgement for a guess: the RGB LED and a chirp.
 //
-// WHY THIS EXISTS AT ALL. A Spectra 6 refresh is 17.1 seconds and there is no
-// partial update, so the screen cannot answer a button press -- a child would
-// press and wait. The design's answer is that the guess is acknowledged by
-// something that is NOT the screen, and the reveal waits for the 16:00 wake.
-// This file is that acknowledgement; without it the interaction has no reply
-// at all and the page is a poster.
+// WHY THIS EXISTS AT ALL. The screen has nothing it is allowed to say. The
+// answer is deliberately held back until the 13:00 wake, so redrawing on a
+// press could only repeat the question the child is already looking at -- and
+// a Spectra 6 has no partial update, so it would repaint the whole page (~2 s)
+// to show no new information. The guess is therefore acknowledged by something
+// that is NOT the screen. Without this file the interaction has no reply at
+// all and the page is a poster.
 //
 // Both come from M5Unified. The LED is a WS2812 on G21 driven over RMT, and
 // Power.begin() enables its LDO through the PM1; the speaker goes through the

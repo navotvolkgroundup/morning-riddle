@@ -45,7 +45,7 @@ typedef struct {
 // Beyond this age the page marks the reading stale rather than hiding it.
 //
 // 18 hours is chosen against the two real intervals: the afternoon wake reads
-// the morning's fetch about 9.5 hours later and must NOT call that stale, and
+// the morning's fetch about 6.5 hours later and must NOT call that stale, and
 // a fetch that fails the next morning leaves a value 24 hours old which MUST
 // be called stale. Anything between those two works; 18 sits clear of both.
 #define WEATHER_STALE_SECS (18 * 3600)

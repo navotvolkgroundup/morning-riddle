@@ -12,7 +12,7 @@
 // WHY NTP MATTERS HERE. riddle_local_day() keys the entire state machine, and
 // riddle_next_wake() decides when the board wakes. Both are worthless against a
 // wrong clock: the board currently believes it is day 20464 because the RTC has
-// never been set, so the "16:00" alarm is 16:00 of the wrong day. Everything
+// never been set, so the "13:00" alarm is 13:00 of the wrong day. Everything
 // downstream is self-consistent and wrong.
 
 #ifndef BOARD_NET_HPP

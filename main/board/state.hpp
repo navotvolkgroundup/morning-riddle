@@ -31,7 +31,7 @@ bool state_load(riddle_nvs_t *st);
 
 // Writes the state. Returns false if it did not commit, which callers should
 // treat as serious: an unsaved guess is a child pressing a button and the
-// board forgetting by 16:00.
+// board forgetting by 13:00.
 bool state_save(const riddle_nvs_t *st);
 
 #endif // BOARD_STATE_HPP

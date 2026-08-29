@@ -44,7 +44,7 @@ struct page_daily_content {
     const char     *choices[3];     // Hebrew; ignored unless has_choices
     bool            has_choices;
 
-    // The 16:00 reveal. When set, the answer replaces the choices: a child
+    // The 13:00 reveal. When set, the answer replaces the choices: a child
     // reading the page after school wants the answer, and leaving three
     // unpressable options under it invites another guess the board will
     // refuse.
@@ -55,7 +55,7 @@ struct page_daily_content {
 // Draws the complete page into the framebuffer and pushes it once.
 //
 // ONE push. Every primitive can trigger its own full-panel waveform otherwise,
-// and a waveform is 17 seconds -- a page drawn unbatched takes minutes and
+// and a waveform is ~2 seconds -- a page drawn unbatched takes minutes and
 // looks like a hang.
 void page_daily_draw(const page_daily_content &c);
 

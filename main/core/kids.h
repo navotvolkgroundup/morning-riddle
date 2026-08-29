@@ -67,7 +67,7 @@ int kids_birthday_on(const kids_t *k, int month, int day);
 // Index of the kid to greet by name today, or -1 for "not today".
 //
 // Deterministic in `day`, which is the point rather than an implementation
-// detail: the morning screen, an early reveal and the 16:00 screen are three
+// detail: the morning screen, an early reveal and the 13:00 screen are three
 // separate draws of the same day, and a random pick would name a different
 // kid on each. It also fires on roughly one day in KIDS_CALLOUT_ONE_IN, so
 // the greeting stays a small surprise instead of becoming furniture.

@@ -19,7 +19,7 @@
 // Local wall-clock times of the two daily events.
 #define RIDDLE_MORNING_HOUR  6
 #define RIDDLE_MORNING_MIN  30
-#define RIDDLE_REVEAL_HOUR  16
+#define RIDDLE_REVEAL_HOUR  13
 #define RIDDLE_REVEAL_MIN    0
 
 // POSIX TZ for Israel, including the DST rules.
@@ -46,7 +46,7 @@ typedef enum {
 
 typedef enum {
     WAKE_MORNING = 0,   // the 06:30 alarm
-    WAKE_AFTERNOON,     // the 16:00 alarm
+    WAKE_AFTERNOON,     // the 13:00 alarm
     WAKE_GUESS,         // Up/Function/Down pressed with a choice
     WAKE_REVEAL,        // reveal-early pressed
     WAKE_MENU,          // entered from the menu tile; must not mutate anything
@@ -88,8 +88,8 @@ extern "C" {
 // "have we already shown today's riddle?".
 int32_t riddle_local_day(time_t utc, const char *tz);
 
-// UTC instant of the next 06:30 or 16:00 local, strictly after `utc`.
-// `is_morning` (may be NULL) receives 1 for the 06:30 slot, 0 for 16:00.
+// UTC instant of the next 06:30 or 13:00 local, strictly after `utc`.
+// `is_morning` (may be NULL) receives 1 for the 06:30 slot, 0 for 13:00.
 time_t riddle_next_wake(time_t utc, const char *tz, int *is_morning);
 
 // --- state machine ----------------------------------------------------------

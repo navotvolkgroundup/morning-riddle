@@ -42,9 +42,9 @@ extern "C" void app_main(void)
     // has been guesswork for want of exactly this line.
     ESP_LOGW(TAG, "app_main entered");
 
-    // WAKE CAUSE BEFORE M5.begin(), always. M5.begin() costs 52.7 seconds of
-    // panel init, and a button press must be answered in milliseconds -- so a
-    // button wake takes the short path and never touches the display.
+    // WAKE CAUSE BEFORE M5.begin(), always. The short path decides whether to
+    // bring the display up at all, so it has to run before anything does.
+    // (M5.begin() is 464ms here, not the 52.7s this comment used to claim.)
     const wake_cause why = wake_why();
     ESP_LOGW(TAG, "wake cause = %d, button = %d", (int)why, wake_button_index());
 
@@ -54,7 +54,8 @@ extern "C" void app_main(void)
     // symptom we have.
     cfg.fallback_board = m5::board_t::board_M5PaperColor;
     // The page fills the screen itself, so M5's own clear is a wasted
-    // full-panel waveform. Measuring whether it is a big part of the 52.7s.
+    // full-panel waveform. This one line is what took M5.begin() from 52.7s to
+    // 464ms -- the clear was almost all of it.
     cfg.clear_display = false;
     const int64_t t_begin = esp_timer_get_time();
     M5.begin(cfg);
@@ -134,8 +135,9 @@ extern "C" void app_main(void)
 
 
     // THE BUTTON SHORT PATH. A guess is acknowledged by the LED and a chirp
-    // and nothing else: the panel needs 17.1s and cannot answer a press, so
-    // the reveal waits for the 16:00 wake. This costs well under a second.
+    // and nothing else: the answer is withheld until the 13:00 wake, so a
+    // redraw could only repaint the same question. This costs well under a
+    // second.
     //
     // M5.begin() is called first now -- at 464ms it is affordable, and it is
     // what brings up the LED and the speaker. That was not true when
@@ -162,7 +164,7 @@ extern "C" void app_main(void)
         // worse than telling them it did not.
         if (act == ACT_SHOW_RESULT) {
             if (!state_save(&st))
-                ESP_LOGE(TAG, "GUESS NOT SAVED -- it will be forgotten by 16:00");
+                ESP_LOGE(TAG, "GUESS NOT SAVED -- it will be forgotten by 13:00");
             ESP_LOGW(TAG, "guess %d accepted, streak %u", b, (unsigned)st.streak);
             feedback_guess(b);
         } else {

@@ -20,7 +20,7 @@ twenty, which is not an interaction.
 
 **Resolution: the guess gets instant feedback that is not the screen** — the
 RGB LED on G21 and a chirp through the speaker on G46, neither of which the old
-board had — **and the screen reveals at 16:00.** That is what the design always
+board had — **and the screen reveals at 13:00.** That is what the design always
 intended: two draws a day, nobody watching either. The panel's weakness turns
 out to match the product.
 
@@ -116,9 +116,9 @@ This corrects an earlier claim in this file and in commit a61f361 that
 `M5.begin()` costs 52.7 s inherently. It does not; it costs 464 ms, and the
 rest was a clear nobody needed.
 
-The 17.1 s refresh confirms the interaction decision from the other direction:
-the screen cannot answer a button press, so the guess gets an LED and a chirp
-and the reveal waits for 16:00.
+The interaction decision follows from the reveal, not from the refresh time:
+the answer is withheld until 13:00, so a redraw on a button press would repaint
+the whole panel to show nothing new. The guess gets an LED and a chirp instead.
 
 ## Hebrew
 
@@ -169,19 +169,16 @@ by looking at the hardware. It needs the same check here.
 ## Waking
 
 `board/wake.cpp`. The scheduling arithmetic is not there — `riddle_next_wake()`
-in `core/` computes the next 06:30 or 16:00 local with DST and is host-tested.
+in `core/` computes the next 06:30 or 13:00 local with DST and is host-tested.
 M5Unified drives the RX8130CE directly, so there is no RTC driver to write.
 
-**The 52-second problem shapes this.** `M5.begin()` costs 52.7s of panel init
-and deep sleep does not avoid it — waking restarts the application. Fine twice
-a day when nobody is watching; unusable for a button press.
+**Wake cause is checked before `M5.begin()`**, because the short path decides
+whether to bring the display up at all. A button wake never touches it: record
+the guess, fire the LED and chirp, sleep again. Not because init is expensive —
+it is 464 ms — but because the answer is withheld until the reveal, so there is
+nothing new to draw. The screen catches up at the next scheduled wake.
 
-So **wake cause is checked before `M5.begin()`**, and a button wake never
-touches the display: record the guess, fire the LED and chirp, sleep again.
-Milliseconds. The screen catches up at the next scheduled wake, which is what
-the design already decided when it moved the reveal to 16:00.
-
-Verified on hardware: cold boot → page drawn → `next wake 16:00 local, in 25498
+Verified on hardware: cold boot → page drawn → `next wake 13:00 local, in 25498
 s` → alarm read back → sleep, and it stays asleep.
 
 **One bug worth remembering.** The first version cleared the RTC interrupt
@@ -194,7 +191,8 @@ because EXT1 wakes on low and sleeping with the line already low is a busy loop.
 
 `board/feedback.cpp`. A guess is acknowledged by the RGB LED (WS2812 on G21,
 over RMT) and a note through the ES8311 codec — never by the screen, which
-needs 17.1 s and cannot answer a press. The reveal waits for the 16:00 wake.
+has nothing new to show until the 13:00 reveal and no partial update with which
+to show it.
 
 Colour **and** sound each carry the whole answer, and each choice is distinct:
 A blue/G5, B green/B5, C orange/D6, rejection red with a low two-note. A
@@ -348,10 +346,10 @@ clock; anything else is treated as a morning, which is idempotent within a day
 because of that guard.
 
 **`ACT_NONE` skips the draw entirely.** When the state machine says the panel is
-already correct, not refreshing saves 17 seconds and the power with it. On a
-panel this slow, not redrawing is a feature.
+already correct, not refreshing saves a full ~2 s waveform and the power with
+it.
 
-At 16:00 the answer replaces the choices rather than sitting under them: a
+At 13:00 the answer replaces the choices rather than sitting under them: a
 child reading after school wants the answer, and leaving three unpressable
 options invites a guess the board will refuse.
 
@@ -384,12 +382,13 @@ that the current firmware refreshes in ~2 s consistently — across content
 changes, warm resets and cold power cycles — and that is the number to design
 against.
 
-**This matters to the design.** The LED-and-chirp decision rests on "the screen
-cannot answer a button press", justified by 17 s. Two seconds is a different
-argument: it is slow, but it is within what a child would wait. The decision
-may still be right — a guess wake would also pay `M5.begin`, and the reveal is
-deliberately deferred to 16:00 — but it should be re-argued on the real number
-rather than inherited from a wrong one.
+**This mattered to the design, and the design was re-argued.** LED-and-chirp
+was originally justified by "17 s is too long to answer a press". Two seconds is
+not, so that argument is gone. The decision stands on a different and better
+one: the answer is withheld until the reveal, so a redraw on a press has nothing
+new to display — it would cost a full-panel waveform to repaint the same
+question. The acknowledgement has to come from something other than the screen
+because the screen has nothing to say, not because it is slow.
 
 ## What is NOT done yet
 
