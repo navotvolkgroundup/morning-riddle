@@ -97,7 +97,34 @@ bool wake_button_held();
 //
 // Holding a button at boot also refuses, as a deliberate escape hatch for a
 // battery-powered board that would otherwise be asleep whenever you reach it.
-bool wake_sleep_if_safe();
+// True if this boot was the PM1 powering us back on from its own RTC wake.
+// Callable only AFTER M5.begin(), which brings up the I2C the PM1 sits on.
+bool wake_was_pm1_rtc();
+
+// Powers the board FULLY DOWN through the PM1, waking only on the RTC.
+//
+// ~92uA against ESP32 deep sleep's much larger draw, but the ESP32 is
+// unpowered, so the guess buttons cannot wake it -- only the RTC can. That is
+// why this is not used all the time; see wake_sleep_if_safe().
+//
+// Falls back to ESP32 deep sleep if the PM1 will not confirm its wake pin. A
+// board that powers off without an armed wake never comes back at all, which
+// is strictly worse than one that sleeps expensively.
+[[noreturn]] void wake_power_off();
+
+// Sleeps only when it is safe to, and picks HOW to sleep.
+//
+// `next_is_morning` says which slot the alarm was just armed for, and that is
+// exactly the right question. A guess only means anything between the morning
+// draw and the 13:00 reveal -- afterwards the answer is on screen and the state
+// machine refuses further presses. So:
+//
+//   next wake is the REVEAL  -> ESP32 deep sleep, buttons live, guesses work
+//   next wake is the MORNING -> PM1 off, ~92uA, nothing to miss
+//
+// The board is button-wakeable exactly while a button press can still do
+// something, and fully off the rest of the time.
+bool wake_sleep_if_safe(bool next_is_morning);
 
 // Deep sleep until the RTC alarm or a button. Does not return. Prefer
 // wake_sleep_if_safe() unless you genuinely mean to sleep regardless.

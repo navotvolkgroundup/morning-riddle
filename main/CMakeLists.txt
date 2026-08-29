@@ -29,6 +29,7 @@ idf_component_register(
         "board"
     REQUIRES
         M5Unified
+        M5PM1
         M5GFX
         nvs_flash
         esp_wifi

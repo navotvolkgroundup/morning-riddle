@@ -8,11 +8,17 @@
 #include "hal/usb_serial_jtag_ll.h"
 #include "esp_sleep.h"
 
+#include <M5PM1.h>
+
 extern "C" {
 #include "riddle_decide.h"
 }
 
 static const char *TAG = "wake";
+
+// Seconds until the alarm wake_arm_next() last armed. The PM1 timer uses it as
+// a second, independent way back from a power-off.
+static uint32_t g_secs_to_wake = 0;
 
 // Israel, with the DST rules the riddle schedule already uses. Kept identical
 // to the Waveshare build's string on purpose: the host tests pin behaviour
@@ -90,6 +96,7 @@ bool wake_arm_next(time_t now, int *is_morning)
     int morning = 0;
     const time_t next = riddle_next_wake(now, WAKE_TZ, &morning);
     if (is_morning) *is_morning = morning;
+    g_secs_to_wake = (next > now) ? (uint32_t)(next - now) : 0;
 
     struct tm lt;
     localtime_r(&next, &lt);
@@ -160,7 +167,85 @@ bool wake_button_held()
     return false;
 }
 
-bool wake_sleep_if_safe()
+namespace {
+M5PM1 g_pm1;
+
+// PM1 GPIO2 is the RTC interrupt line -- PYG2 in M5Stack's PaperColor pin
+// table, and the same pin the factory firmware arms in hal.cpp.
+constexpr m5pm1_gpio_num_t kPm1RtcWake = M5PM1_GPIO_NUM_2;
+
+bool pm1_ready()
+{
+    static int state = -1;
+    if (state < 0) {
+        state = (g_pm1.begin(&M5.In_I2C, M5PM1_DEFAULT_ADDR, M5PM1_I2C_FREQ_100K)
+                 == M5PM1_OK) ? 1 : 0;
+        if (!state) ESP_LOGE(TAG, "PM1 did not answer on I2C");
+    }
+    return state == 1;
+}
+}  // namespace
+
+bool wake_was_pm1_rtc()
+{
+    if (!pm1_ready()) return false;
+    uint8_t src = 0;
+    if (g_pm1.getWakeSource(&src, M5PM1_CLEAN_ALL) != M5PM1_OK) return false;
+    ESP_LOGI(TAG, "PM1 wake source mask 0x%02x", (unsigned)src);
+    return (src & M5PM1_WAKE_SRC_EXT_WAKE) != 0;
+}
+
+void wake_power_off()
+{
+    // The RTC line must be released before arming a falling edge on it, or the
+    // PM1 sees the edge that is already there and powers straight back on.
+    wake_clear_alarm();
+
+    bool armed = pm1_ready();
+    if (armed) {
+        armed = g_pm1.gpioSetFunc(kPm1RtcWake, M5PM1_GPIO_FUNC_WAKE) == M5PM1_OK
+             && g_pm1.gpioSetPull(kPm1RtcWake, M5PM1_GPIO_PULL_UP) == M5PM1_OK
+             && g_pm1.gpioSetWakeEdge(kPm1RtcWake, M5PM1_GPIO_WAKE_FALLING) == M5PM1_OK
+             && g_pm1.gpioSetWakeEnable(kPm1RtcWake, true) == M5PM1_OK;
+    }
+
+    if (!armed) {
+        // NEVER power off unarmed. A board that shuts down with no wake source
+        // is not asleep, it is off until a person finds it and presses power --
+        // and on a wall that is indistinguishable from broken. Deep sleep is
+        // more expensive and always wakes.
+        ESP_LOGE(TAG, "PM1 wake pin would not arm -- falling back to deep sleep");
+        wake_sleep();
+    }
+
+    // TWO WAYS BACK, NOT ONE. The RTC edge above depends on the IRQ line being
+    // wired to PM1 GPIO2 and on the alarm firing exactly as configured. The
+    // PM1's own timer depends on neither. A board that powers off and does not
+    // come back is not asleep, it is bricked until someone finds it -- so the
+    // timer is armed a minute late as a backstop, and whichever fires first
+    // wins.
+    //
+    // g_secs_to_wake is set by wake_arm_next(), which has already run.
+    if (g_secs_to_wake > 0) {
+        const uint32_t backstop = g_secs_to_wake + 60;
+        if (g_pm1.timerSet(backstop, M5PM1_TIM_ACTION_POWERON) == M5PM1_OK)
+            ESP_LOGW(TAG, "PM1 timer backstop armed for %u s", (unsigned)backstop);
+        else
+            ESP_LOGE(TAG, "PM1 timer backstop would not arm; RTC edge is alone");
+    }
+
+    ESP_LOGW(TAG, "PM1 power off; back on the RTC edge or the %u s timer",
+             (unsigned)(g_secs_to_wake + 60));
+    g_pm1.sysCmd(M5PM1_SYS_CMD_OFF);
+
+    // sysCmd does not return on success. If we are still here it failed, and
+    // sleeping is better than falling through into the rest of app_main.
+    vTaskDelay(pdMS_TO_TICKS(500));
+    ESP_LOGE(TAG, "PM1 refused to power off -- deep sleeping instead");
+    wake_sleep();
+}
+
+bool wake_sleep_if_safe(bool next_is_morning)
 {
     if (wake_usb_present()) {
         ESP_LOGW(TAG, "USB attached; staying awake so the board stays flashable");
@@ -170,6 +255,9 @@ bool wake_sleep_if_safe()
         ESP_LOGW(TAG, "button held; staying awake (escape hatch)");
         return false;
     }
+
+    // The guess window decides how we sleep. See wake.hpp.
+    if (next_is_morning) wake_power_off();
     wake_sleep();
 }
 

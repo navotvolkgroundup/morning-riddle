@@ -45,7 +45,7 @@ extern "C" void app_main(void)
     // WAKE CAUSE BEFORE M5.begin(), always. The short path decides whether to
     // bring the display up at all, so it has to run before anything does.
     // (M5.begin() is 464ms here, not the 52.7s this comment used to claim.)
-    const wake_cause why = wake_why();
+    wake_cause why = wake_why();
     ESP_LOGW(TAG, "wake cause = %d, button = %d", (int)why, wake_button_index());
 
     auto cfg = M5.config();
@@ -61,6 +61,16 @@ extern "C" void app_main(void)
     M5.begin(cfg);
     ESP_LOGW(TAG, "M5.begin took %lld ms (clear_display=false)",
              (long long)((esp_timer_get_time() - t_begin) / 1000));
+
+    // A PM1 POWER-ON LOOKS LIKE A COLD BOOT TO THE ESP32, because it is one --
+    // the chip was unpowered. Only the PM1 knows an RTC edge brought us back,
+    // and asking it needs the I2C that M5.begin() just brought up. Without this
+    // every overnight wake would be indistinguishable from someone pressing
+    // power, and the reveal check keys off the wake cause.
+    if (why == wake_cause::cold && wake_was_pm1_rtc()) {
+        ESP_LOGW(TAG, "PM1 says this was an RTC wake, not a cold boot");
+        why = wake_cause::alarm;
+    }
 
     // THE BUTTON SHORT PATH, AND IT RUNS FIRST.
     //
@@ -405,6 +415,6 @@ extern "C" void app_main(void)
     // No grace period any more: wake_sleep_if_safe() refuses outright while
     // USB is attached, which is a rule rather than a race. A timed window was
     // the wrong shape -- it made every reflash a stopwatch exercise.
-    if (!wake_sleep_if_safe())
+    if (!wake_sleep_if_safe(morning != 0))
         ESP_LOGW(TAG, "staying awake; the page is drawn and the alarm is armed");
 }
