@@ -85,7 +85,12 @@ extern "C" void app_main(void)
     // Proof of life, before anything that can fail. Everything after this line
     // -- the card, the radio, the panel -- is allowed to go wrong quietly; this
     // is the one signal that says the firmware itself is running.
-    feedback_alive();
+    //
+    // NOT ON A BUTTON WAKE. The blink is GREEN, and green is choice B. A child
+    // pressing A would get three green flashes and then blue, which is exactly
+    // the ambiguity the colour-per-choice design exists to prevent -- and it
+    // would add most of a second to the one path that has to feel instant.
+    if (why != wake_cause::button) feedback_alive();
 
     // The kids and the timetable, cache first then the card.
     //
@@ -208,8 +213,10 @@ extern "C" void app_main(void)
         riddle_input_t in = {};
         in.reason  = WAKE_GUESS;
         in.guess   = (int8_t)b;
-        in.batch_n = 1;                 // the sample riddle; the real count
-                                        // arrives with the fetched batch
+        // Not read for a guess -- riddle_decide's WAKE_GUESS case looks only
+        // at state and day -- but 1 was left over from the sample-content era
+        // and read like a real bound. 0 says plainly that it is unused here.
+        in.batch_n = 0;
         in.today   = riddle_local_day(time(nullptr), RIDDLE_TZ);
 
         const riddle_action_e act = riddle_decide(&in, &st);
