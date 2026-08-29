@@ -35,9 +35,21 @@
 // Pin assignments, from the M5Stack PaperColor documentation and confirmed
 // against M5Unified's own board table.
 #define WAKE_PIN_RTC_INT   7        // RX8130CE IRQ, active low
-#define WAKE_PIN_BTN_A    10
-#define WAKE_PIN_BTN_B     9
-#define WAKE_PIN_BTN_C     1
+
+// THE BUTTONS ARE NAMED BY POSITION ON THE SCREEN, NOT BY M5STACK'S LABELS.
+//
+// M5Stack's documentation calls G10 "Button A", G9 "Button B" and G1
+// "Button C". Following that naming produced a board where pressing the TOP
+// button recorded choice C -- because their A is the BOTTOM button, while the
+// daily page draws choice A at the top, beside the first answer.
+//
+// Measured on hardware, top to bottom: G1, G9, G10. A child presses the button
+// beside the option they are reading, so the top button MUST be choice 0.
+// These names follow the screen, and the vendor's labels are noted beside them
+// so the discrepancy is visible rather than waiting to be rediscovered.
+#define WAKE_PIN_BTN_TOP     1      // choice A on the page  (M5Stack calls it C)
+#define WAKE_PIN_BTN_MIDDLE  9      // choice B on the page  (M5Stack calls it B)
+#define WAKE_PIN_BTN_BOTTOM 10      // choice C on the page  (M5Stack calls it A)
 
 enum class wake_cause {
     cold,       // power-on or reset: not a wake at all

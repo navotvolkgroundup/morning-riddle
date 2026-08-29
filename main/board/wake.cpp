@@ -24,8 +24,8 @@ static const char *TAG = "wake";
 namespace {
 
 constexpr uint64_t kWakeMask =
-    (1ULL << WAKE_PIN_RTC_INT) | (1ULL << WAKE_PIN_BTN_A) |
-    (1ULL << WAKE_PIN_BTN_B)   | (1ULL << WAKE_PIN_BTN_C);
+    (1ULL << WAKE_PIN_RTC_INT) | (1ULL << WAKE_PIN_BTN_TOP) |
+    (1ULL << WAKE_PIN_BTN_MIDDLE) | (1ULL << WAKE_PIN_BTN_BOTTOM);
 
 int g_button = -1;
 
@@ -41,8 +41,8 @@ wake_cause wake_why()
     // so the buttons appear stuck and nothing responds. Releasing here means it
     // happens on every path, including the ones that return early.
     gpio_deep_sleep_hold_dis();
-    for (int pin : { WAKE_PIN_RTC_INT, WAKE_PIN_BTN_A, WAKE_PIN_BTN_B,
-                     WAKE_PIN_BTN_C }) {
+    for (int pin : { WAKE_PIN_RTC_INT, WAKE_PIN_BTN_TOP, WAKE_PIN_BTN_MIDDLE,
+                     WAKE_PIN_BTN_BOTTOM }) {
         gpio_hold_dis((gpio_num_t)pin);
     }
 
@@ -59,9 +59,11 @@ wake_cause wake_why()
     const uint64_t status = esp_sleep_get_ext1_wakeup_status();
     if (status & (1ULL << WAKE_PIN_RTC_INT)) return wake_cause::alarm;
 
-    if (status & (1ULL << WAKE_PIN_BTN_A)) g_button = 0;
-    else if (status & (1ULL << WAKE_PIN_BTN_B)) g_button = 1;
-    else if (status & (1ULL << WAKE_PIN_BTN_C)) g_button = 2;
+    // Top of the screen is choice 0. See the pin block in wake.hpp: this was
+    // inverted, and the board answered a press with the wrong colour.
+    if (status & (1ULL << WAKE_PIN_BTN_TOP)) g_button = 0;
+    else if (status & (1ULL << WAKE_PIN_BTN_MIDDLE)) g_button = 1;
+    else if (status & (1ULL << WAKE_PIN_BTN_BOTTOM)) g_button = 2;
 
     return (g_button >= 0) ? wake_cause::button : wake_cause::other;
 }
@@ -152,7 +154,7 @@ bool wake_usb_present()
 
 bool wake_button_held()
 {
-    for (int pin : { WAKE_PIN_BTN_A, WAKE_PIN_BTN_B, WAKE_PIN_BTN_C }) {
+    for (int pin : { WAKE_PIN_BTN_TOP, WAKE_PIN_BTN_MIDDLE, WAKE_PIN_BTN_BOTTOM }) {
         gpio_set_direction((gpio_num_t)pin, GPIO_MODE_INPUT);
         gpio_pullup_en((gpio_num_t)pin);
         if (gpio_get_level((gpio_num_t)pin) == 0) return true;   // active low
@@ -206,7 +208,8 @@ void wake_sleep()
              rtc_level, rtc_level ? "" : "  <-- LOW: will wake immediately");
 
     ESP_LOGI(TAG, "sleeping: RTC on G%d, buttons G%d/G%d/G%d",
-             WAKE_PIN_RTC_INT, WAKE_PIN_BTN_A, WAKE_PIN_BTN_B, WAKE_PIN_BTN_C);
+             WAKE_PIN_RTC_INT, WAKE_PIN_BTN_TOP, WAKE_PIN_BTN_MIDDLE,
+             WAKE_PIN_BTN_BOTTOM);
 
     // All four lines idle high and pull low when asserted, so ANY_LOW covers
     // the alarm and every button with one mask.
@@ -214,8 +217,8 @@ void wake_sleep()
 
     // Hold the pull-ups through sleep, or the inputs float and the board wakes
     // on noise -- which on a battery device is indistinguishable from a bug.
-    for (int pin : { WAKE_PIN_RTC_INT, WAKE_PIN_BTN_A, WAKE_PIN_BTN_B,
-                     WAKE_PIN_BTN_C }) {
+    for (int pin : { WAKE_PIN_RTC_INT, WAKE_PIN_BTN_TOP, WAKE_PIN_BTN_MIDDLE,
+                     WAKE_PIN_BTN_BOTTOM }) {
         gpio_pullup_en((gpio_num_t)pin);
         gpio_hold_en((gpio_num_t)pin);
     }
