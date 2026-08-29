@@ -142,19 +142,34 @@ bool wake_usb_present()
     // every scheduled wake and flattens its cell in about a day, and none of
     // it is visible over USB because a cabled board is supposed to stay awake.
     //
-    // usb_serial_jtag_is_connected() was the next thing tried and it is ALSO
-    // wrong here: it initialises its flag to true and only ever clears it from
-    // a FreeRTOS tick hook, which is not running in this build. Measured on
-    // battery, it still reported connected and the board still refused to
-    // sleep. Two wrong USB tests in a row, both taken on trust.
+    // FOURTH ATTEMPT AT "IS A CABLE ATTACHED". The first three:
     //
-    // So read the signal itself. A USB host sends a Start-Of-Frame packet
-    // every 1ms; the peripheral latches that as a raw interrupt bit. Clear it,
-    // wait 20ms, and look: on a cabled board dozens of SOFs will have arrived,
-    // and on battery none can. No driver, no hook, no cached flag.
-    usb_serial_jtag_ll_clr_intsts_mask(USB_SERIAL_JTAG_INTR_SOF);
-    vTaskDelay(pdMS_TO_TICKS(20));
-    return (usb_serial_jtag_ll_get_intraw_mask() & USB_SERIAL_JTAG_INTR_SOF) != 0;
+    //   M5.Power.getVBUSVoltage()      PM1 0x24/0x25 = VIN, the boosted SYSTEM
+    //                                  rail. ~5100mV on battery. Always true.
+    //   usb_serial_jtag_is_connected() flag initialised to true, cleared only
+    //                                  by a tick hook not running in this build.
+    //   SOF with a clear-then-wait     CLEARING was the bug. The console driver
+    //                                  clears the same status, so the 20ms
+    //                                  window raced it and came back empty on a
+    //                                  CABLED board -- which then powered off
+    //                                  while plugged in.
+    //
+    // pm1.readVin() looks like the obvious fix and is not: it reads exactly the
+    // same 0x24/0x25 that M5Unified does. The PM1 offers 5VIN insert/remove
+    // EVENTS but no level, so there is no status bit to ask either.
+    //
+    // So: SOF again, WITHOUT clearing. A USB host sends a Start-Of-Frame every
+    // 1ms and the peripheral latches it as a raw interrupt bit. On battery no
+    // SOF can have arrived since boot, so the bit reads zero however long you
+    // look; cabled, it is set within a millisecond. Never clearing removes the
+    // race entirely -- we only read -- and sampling for 200ms catches the bit
+    // even if something else clears it between passes.
+    for (int i = 0; i < 40; i++) {
+        if (usb_serial_jtag_ll_get_intraw_mask() & USB_SERIAL_JTAG_INTR_SOF)
+            return true;
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    return false;
 }
 
 bool wake_button_held()
@@ -247,6 +262,18 @@ void wake_power_off()
 
 bool wake_sleep_if_safe(bool next_is_morning)
 {
+    // Log all three readings side by side. VBUS is the rail that fooled this
+    // code for a day; 5VINOUT (PM1 0x26/0x27) is the one candidate not yet
+    // ruled out, and a battery boot plus a cabled boot will say whether it
+    // discriminates. Build nothing on it until they do.
+    if (pm1_ready()) {
+        uint16_t vinout = 0;
+        g_pm1.read5VInOut(&vinout);
+        ESP_LOGW(TAG, "cable check: SOF=%s, VBUS=%dmV, 5VINOUT=%umV",
+                 wake_usb_present() ? "YES" : "no",
+                 (int)M5.Power.getVBUSVoltage(), (unsigned)vinout);
+    }
+
     if (wake_usb_present()) {
         ESP_LOGW(TAG, "USB attached; staying awake so the board stays flashable");
         return false;
