@@ -8,8 +8,6 @@
 #include "hal/usb_serial_jtag_ll.h"
 #include "esp_sleep.h"
 
-#include "state.hpp"
-
 extern "C" {
 #include "riddle_decide.h"
 }
@@ -164,17 +162,6 @@ bool wake_button_held()
 
 bool wake_sleep_if_safe()
 {
-    // Record the inputs to this decision before acting on them. On battery
-    // there is no serial, so a refusal is otherwise silent -- and "the board
-    // never slept" is indistinguishable from "the board slept and did not
-    // wake" without it.
-    const int16_t vbus = M5.Power.getVBUSVoltage();
-    const bool usb = wake_usb_present();
-    ESP_LOGW(TAG, "sleep decision: SOF-detected USB=%s, VBUS=%dmV (VBUS is the "
-                  "boosted system rail here, not a cable test)",
-             usb ? "YES" : "no", (int)vbus);
-    state_note_awake((int)vbus, wake_button_held());
-
     if (wake_usb_present()) {
         ESP_LOGW(TAG, "USB attached; staying awake so the board stays flashable");
         return false;
@@ -188,11 +175,6 @@ bool wake_sleep_if_safe()
 
 void wake_sleep()
 {
-    // Record the attempt BEFORE sleeping. If the next boot reports a cold
-    // cause with "reached deep sleep: YES", the board slept and something
-    // other than an EXT1 button woke it -- most likely a full power-down.
-    state_note_sleeping();
-
     // Clear here, not earlier: anything between the clear and the sleep can
     // let the line assert again. The first version cleared before a 30-second
     // delay and the board woke the instant it slept.

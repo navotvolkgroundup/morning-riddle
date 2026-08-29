@@ -42,21 +42,11 @@ extern "C" void app_main(void)
     // has been guesswork for want of exactly this line.
     ESP_LOGW(TAG, "app_main entered");
 
-    // BEFORE ANYTHING THAT CAN FAIL, AND BEFORE M5.begin(). This writes a
-    // counter to flash, which is the only evidence of a boot that survives to
-    // be read by a host that cannot safely open the serial port. See
-    // state_bump_boot_count().
-    state_bump_boot_count();
-
     // WAKE CAUSE BEFORE M5.begin(), always. The short path decides whether to
     // bring the display up at all, so it has to run before anything does.
     // (M5.begin() is 464ms here, not the 52.7s this comment used to claim.)
     const wake_cause why = wake_why();
     ESP_LOGW(TAG, "wake cause = %d, button = %d", (int)why, wake_button_index());
-
-    // Carry this across to the next cabled boot. A battery wake has no serial
-    // port, so otherwise the guess path can only ever be tested by inference.
-    state_note_wake((int)why, wake_button_index());
 
     auto cfg = M5.config();
     // Pin the board instead of trusting auto-detection. If detection fails the
@@ -118,7 +108,6 @@ extern "C" void app_main(void)
         in.today   = riddle_local_day(time(nullptr), RIDDLE_TZ);
 
         const riddle_action_e act = riddle_decide(&in, &st);
-        state_note_guess((long)in.today, (long)st.day, (int)st.state, (int)act, b);
 
         // ACKNOWLEDGE WHAT THE STATE MACHINE DECIDED, not what was pressed.
         // A guess after the answer is out, or against yesterday's screen, is a
@@ -152,16 +141,6 @@ extern "C" void app_main(void)
     // existed, on the button path only, so every ordinary boot armed the trap
     // and the board would draw its page once and then never boot again.
     if (why != wake_cause::button) feedback_release_straps();
-
-    // Proof of life, before anything that can fail. Everything after this line
-    // -- the card, the radio, the panel -- is allowed to go wrong quietly; this
-    // is the one signal that says the firmware itself is running.
-    //
-    // NOT ON A BUTTON WAKE. The blink is GREEN, and green is choice B. A child
-    // pressing A would get three green flashes and then blue, which is exactly
-    // the ambiguity the colour-per-choice design exists to prevent -- and it
-    // would add most of a second to the one path that has to feel instant.
-    if (why != wake_cause::button) feedback_alive();
 
     // The kids and the timetable, cache first then the card.
     //
