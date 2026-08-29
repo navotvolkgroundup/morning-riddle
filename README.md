@@ -340,6 +340,78 @@ versus, after the fix:
 strapping pins on this chip. Anything this design drives on one of them can
 reproduce this in a new disguise.
 
+**But do not reach for that explanation first.** A later day of download-mode
+boots looked exactly like this and was NOT a driven strapping pin — it was the
+sampled-state latch described below, where GPIO0 is physically free and the
+chip is remembering a stale reading. I spent hours on a G45/G46 theory, shipped
+a commit for it, and it was irrelevant. Check the latch first: it is one
+command to rule out.
+
+## The board latches into DOWNLOAD mode, and only a watchdog reset clears it
+
+**Read this before concluding a board is dead. It cost most of a day.**
+
+The symptom: every reset lands in
+
+    rst:0x15 (USB_UART_CHIP_RESET),boot:0x21 (DOWNLOAD(USB/UART0))
+    waiting for download
+
+and the application never runs. Flashing still works perfectly, which makes it
+look like a board that accepts firmware and refuses to execute it.
+
+**The cause is documented by Espressif**, in the esptool troubleshooting page
+for the ESP32-S3:
+
+> the USB-Serial/JTAG peripheral can only trigger a core reset, which does not
+> re-sample the state of the boot strapping pin. As a result, the state of the
+> boot pin remains sampled as LOW, even if it is physically released, and the
+> chip stays in download mode.
+
+So GPIO0 is **not** being held down. The pin is free; the chip is remembering a
+stale sample of it. Enter download mode once — by holding a button across a
+reset, or by any host that asserts DTR — and every subsequent core reset
+inherits the latch.
+
+**The cure is one command:**
+
+    esptool --port /dev/cu.usbmodemXXXX --before no_reset --after watchdog_reset run
+
+`watchdog_reset` forces a full system reset, which re-samples the straps.
+`hard_reset` does not, and neither does `idf.py flash`, `idf.py monitor`, or an
+RTS pulse — they are all core resets, so **every attempt to recover or observe
+the board re-armed the trap.**
+
+**Why power cycling does not fix it.** It should, and on a bare board it does.
+This one has a battery: unplugging USB does not remove power from the RTC
+domain. Espressif's own issue tracker puts it plainly — a device with no
+external reset button and a permanently attached battery cannot leave the
+bootloader unaided.
+
+**Every diagnostic on this board lies about it.** Opening the serial port
+asserts DTR, which resets the chip; that is why every download-mode log
+captured here reads `rst:0x15 (USB_UART_CHIP_RESET)` — the tooling, not the
+fault. `idf.py monitor --no-reset` avoids the reset but does not survive the
+USB re-enumeration a reset causes.
+
+**How to tell whether the application is running, without serial.**
+`state_bump_boot_count()` writes a counter to NVS before anything else in
+`app_main`. Dump the partition, power-cycle, dump it again:
+
+    esptool --before no_reset read_flash 0x9000 0x6000 nvs.bin
+
+Byte-identical means the firmware never ran, and that conclusion depends on no
+display, no LED, and no serial port. Conversely, `esptool` failing to sync with
+`--before no_reset` means the ROM bootloader is gone and the app **is**
+running — a connection error is the good outcome.
+
+**eFuses are worth ruling out once**, and take a second:
+
+    espefuse --port /dev/cu.usbmodemXXXX --before no_reset summary
+
+All-default here: no secure boot, no `DIS_FORCE_DOWNLOAD`, no JTAG lock. Had
+one of those been set the board would have been permanently locked rather than
+merely latched.
+
 ## WiFi, verified
 
 Portal → credentials in NVS → connect → NTP → RTC:
@@ -489,8 +561,13 @@ up the vendor's own figure in about a minute.
   image. ~1958 ms is about a ninth of this panel's real refresh time and does
   not vary with content, so the push is almost certainly returning without
   driving the waveform. This is the top open bug.
-- **The board does not execute the application at all.** This is the blocker,
-  and it is measured rather than inferred.
+- **RESOLVED: the board would not execute the application.** It was the
+  USB-Serial/JTAG download-mode latch, not hardware and not firmware — see
+  "The board latches into DOWNLOAD mode" above. One `--after watchdog_reset`
+  cleared it. The investigation below is left in place because the *method* is
+  what was worth keeping.
+
+  It was measured rather than inferred.
 
   The three obvious witnesses all lie on this board. **Serial** cannot be
   trusted: opening the port asserts DTR, which forces the ROM bootloader, so
@@ -510,9 +587,20 @@ up the vendor's own figure in about a minute.
   Across a full power-off with the SD card removed, the 24 KB partition is
   **byte-identical** and no `boots` key exists. The firmware does not run.
 
-  What that leaves: Espressif documents that GPIO46 is ignored when GPIO0 is
-  high, so a board in download mode had **GPIO0 low at reset**. That exonerates
-  G45/G46 (and makes the fix in `f79dee9` correct but irrelevant). eFuses are
-  all at factory defaults — no secure boot, no `DIS_FORCE_DOWNLOAD`, no JTAG
-  lock — so nothing is permanently latched. Something physical is holding GPIO0,
-  on a unit whose buttons have stuck twice before.
+  That reasoning was right up to its last step. GPIO0 *was* sampled low — but
+  nothing physical was holding it, and I concluded it was a stuck button on a
+  board whose buttons were fine.
+
+- **THE LIVE BUG: the panel initialises but renders nothing.** `M5.begin()` with
+  `clear_display=true` takes 52 s and visibly clears the screen, so the panel
+  can move ink. Nothing drawn afterwards ever appears — not the daily page, not
+  a `fillRect`, not `clear(TFT_BLACK)`, batched or unbatched. Allocation is not
+  the cause (160 KB DMA free before `M5.begin`, 73 KB largest block, ~56 KB
+  consumed successfully).
+
+  **It is not this repository's fault.** The 28 Aug build `48a3ecc`, whose own
+  output was still physically on the glass, was reflashed and no longer renders
+  either. Identical binary, same board, different result.
+
+  Next step is M5Stack's factory firmware via M5Burner, which removes this code
+  from the question entirely.
