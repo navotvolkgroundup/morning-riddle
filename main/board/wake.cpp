@@ -5,6 +5,7 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "driver/usb_serial_jtag.h"
+#include "hal/usb_serial_jtag_ll.h"
 #include "esp_sleep.h"
 
 #include "state.hpp"
@@ -134,11 +135,19 @@ bool wake_usb_present()
     // every scheduled wake and flattens its cell in about a day, and none of
     // it is visible over USB because a cabled board is supposed to stay awake.
     //
-    // usb_serial_jtag_is_connected() watches for host SOF packets, which is
-    // the actual question being asked: is a host attached that we should stay
-    // flashable for. It assumes connected until a few ticks pass with no SOF,
-    // and this runs tens of seconds into the boot, so it has long settled.
-    return usb_serial_jtag_is_connected();
+    // usb_serial_jtag_is_connected() was the next thing tried and it is ALSO
+    // wrong here: it initialises its flag to true and only ever clears it from
+    // a FreeRTOS tick hook, which is not running in this build. Measured on
+    // battery, it still reported connected and the board still refused to
+    // sleep. Two wrong USB tests in a row, both taken on trust.
+    //
+    // So read the signal itself. A USB host sends a Start-Of-Frame packet
+    // every 1ms; the peripheral latches that as a raw interrupt bit. Clear it,
+    // wait 20ms, and look: on a cabled board dozens of SOFs will have arrived,
+    // and on battery none can. No driver, no hook, no cached flag.
+    usb_serial_jtag_ll_clr_intsts_mask(USB_SERIAL_JTAG_INTR_SOF);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    return (usb_serial_jtag_ll_get_intraw_mask() & USB_SERIAL_JTAG_INTR_SOF) != 0;
 }
 
 bool wake_button_held()
@@ -158,6 +167,10 @@ bool wake_sleep_if_safe()
     // never slept" is indistinguishable from "the board slept and did not
     // wake" without it.
     const int16_t vbus = M5.Power.getVBUSVoltage();
+    const bool usb = wake_usb_present();
+    ESP_LOGW(TAG, "sleep decision: SOF-detected USB=%s, VBUS=%dmV (VBUS is the "
+                  "boosted system rail here, not a cable test)",
+             usb ? "YES" : "no", (int)vbus);
     state_note_awake((int)vbus, wake_button_held());
 
     if (wake_usb_present()) {
