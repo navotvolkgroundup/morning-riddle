@@ -29,10 +29,30 @@ bool g_bus_ready = false;
 // mount attempts, on the belief that it was the card's power rail and that
 // cutting it could revive a wedged card.
 //
-// THAT BIT IS NOT THE CARD. It is PM1's GPIO3 output, which M5Unified uses to
-// enable the ES8311 audio codec (M5Unified.cpp:506 and :513). The mapping was
-// invented from the register being touched near the power init and never
-// checked against anything.
+// THE BIT WAS A GUESS, AND REGISTER 0x11 IS THE WRONG THING TO TOUCH.
+//
+// M5Stack's PaperColor documentation lists the PM1's GPIO functions as:
+//
+//   PYG0  E-Paper power enable          <-- THE PANEL
+//   PYG1  microSD card insertion detect
+//   PYG2  RTC interrupt
+//   PYG3  microSD power supply
+//   PYG4  microSD detection enable
+//
+// So a card power rail does exist. But 0x11 is the GPIO OUTPUT register for
+// all of them, and bitOn/bitOff is a read-modify-write: read the byte, change
+// one bit, write it back. Any read that returns garbage writes zeros across
+// every line in it -- including PYG0, the panel's own power. That is the most
+// plausible account of a display that died and stayed dead across reboots
+// while the PM1 held state.
+//
+// M5Unified muddies it further by driving this same register's bit 3 to enable
+// the ES8311 codec (M5Unified.cpp:506 and :513), so the bit's meaning is not
+// even consistent between the vendor's docs and the vendor's own code.
+//
+// None of which was checked before writing it. The original comment here
+// asserted this bit was the card's rail, "set up as an output by M5Unified's
+// Power init for this board", on no evidence at all.
 //
 // The cost was the worst bug of this port. Once the card began failing, the
 // "recovery" ran four times on every boot -- three SPI attempts plus the SDMMC
