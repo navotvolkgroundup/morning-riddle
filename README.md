@@ -591,16 +591,21 @@ up the vendor's own figure in about a minute.
   nothing physical was holding it, and I concluded it was a stuck button on a
   board whose buttons were fine.
 
-- **THE LIVE BUG: the panel initialises but renders nothing.** `M5.begin()` with
-  `clear_display=true` takes 52 s and visibly clears the screen, so the panel
-  can move ink. Nothing drawn afterwards ever appears — not the daily page, not
-  a `fillRect`, not `clear(TFT_BLACK)`, batched or unbatched. Allocation is not
-  the cause (160 KB DMA free before `M5.begin`, 73 KB largest block, ~56 KB
-  consumed successfully).
+- **RESOLVED: the panel rendered nothing.** It was this repository after all,
+  and the cause was `sdcard.cpp` power-cycling PM1 register `0x11` bit 3
+  between mount attempts. That bit is **PM1's GPIO3 output, which M5Unified
+  uses to enable the ES8311 codec** (`M5Unified.cpp:506`/`:513`) -- not the TF
+  rail. The mapping was invented and never checked.
 
-  **It is not this repository's fault.** The 28 Aug build `48a3ecc`, whose own
-  output was still physically on the glass, was reflashed and no longer renders
-  either. Identical binary, same board, different result.
+  Once the card began failing, the "recovery" ran four times per boot and left
+  the display unable to render: it initialised, cleared, reported successful
+  pushes, and showed nothing. The same binary that had rendered days earlier
+  now did not, which made the code look innocent and sent the investigation
+  through strapping pins, DMA heaps, autodetect caches, and a suspected dead
+  panel. M5Stack's factory firmware rendering perfectly is what turned it back
+  into a software bug.
 
-  Next step is M5Stack's factory firmware via M5Burner, which removes this code
-  from the question entirely.
+  **The lesson worth keeping:** do not power-cycle a rail you have not
+  confirmed from a datasheet, and treat "the same binary behaves differently"
+  as evidence that something stateful changed underneath -- not as evidence
+  that the code is innocent.

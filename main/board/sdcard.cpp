@@ -25,25 +25,29 @@ constexpr int kPinCs   = 47;
 sdmmc_card_t *g_card = nullptr;
 bool g_bus_ready = false;
 
-// The card's power rail is switched by the PM1, not by the ESP32: register
-// 0x11 bit 3, set up as an output by M5Unified's Power init for this board.
+// NO POWER CYCLING. This file used to toggle PM1 register 0x11 bit 3 between
+// mount attempts, on the belief that it was the card's power rail and that
+// cutting it could revive a wedged card.
 //
-// That means a card that has wedged -- pulled while powered, or left in a bad
-// state after a half-finished transaction -- can be POWER CYCLED in software.
-// Nothing else in the SPI layer can recover such a card: it simply stops
-// answering, and every retry gets the same silence.
-constexpr uint8_t kPm1Addr    = 0x6E;
-constexpr uint8_t kPm1GpioOut = 0x11;
-constexpr uint8_t kTfPowerBit = 1 << 3;
+// THAT BIT IS NOT THE CARD. It is PM1's GPIO3 output, which M5Unified uses to
+// enable the ES8311 audio codec (M5Unified.cpp:506 and :513). The mapping was
+// invented from the register being touched near the power init and never
+// checked against anything.
+//
+// The cost was the worst bug of this port. Once the card began failing, the
+// "recovery" ran four times on every boot -- three SPI attempts plus the SDMMC
+// fallback -- and left the panel unable to render. The display initialised,
+// cleared, reported successful pushes, and showed nothing, on every build
+// including ones that had rendered perfectly days earlier. That last part is
+// what made it so hard to see: the same binary changed behaviour, so the code
+// looked innocent, and hours went into strapping pins, DMA heaps, autodetect
+// caches and a suspected dead panel. M5Stack's factory firmware rendering
+// fine is what finally turned it back into a software bug.
+//
+// The retries stay -- a card that is merely slow to settle does answer a
+// second probe -- but nothing here touches a rail again. Do not add power
+// control to this file without a datasheet reference for the exact bit.
 
-void tf_power_cycle()
-{
-    ESP_LOGI(TAG, "power-cycling the card via the PM1");
-    M5.In_I2C.bitOff(kPm1Addr, kPm1GpioOut, kTfPowerBit, 100000);
-    vTaskDelay(pdMS_TO_TICKS(250));      // let the rail actually fall
-    M5.In_I2C.bitOn(kPm1Addr, kPm1GpioOut, kTfPowerBit, 100000);
-    vTaskDelay(pdMS_TO_TICKS(250));      // and the card finish its own reset
-}
 }  // namespace
 
 bool sd_mount()
@@ -111,12 +115,6 @@ bool sd_mount()
         err = esp_vfs_fat_sdspi_mount(SD_MOUNT_POINT, &host, &slot, &mcfg, &g_card);
         if (err == ESP_OK) break;
         ESP_LOGW(TAG, "mount attempt %d: %s", attempt, esp_err_to_name(err));
-
-        // Cut the card's power before trying again. A retry at the same power
-        // state just repeats the same conversation with a card that is not
-        // listening; taking the rail down is what makes the next attempt
-        // genuinely different.
-        tf_power_cycle();
     }
 
     // SDMMC FALLBACK.
@@ -155,8 +153,8 @@ bool sd_mount()
         // slot looks like AND what a badly seated or failing card looks like,
         // so say both rather than asserting one.
         if (err == ESP_ERR_TIMEOUT)
-            ESP_LOGW(TAG, "the card stopped answering partway through init "
-                          "(%s) -- present but not completing, not absent",
+            ESP_LOGW(TAG, "no answer from the card slot (%s) -- an EMPTY SLOT "
+                          "and a failing card look identical here",
                      esp_err_to_name(err));
         else if (err == ESP_FAIL)
             ESP_LOGW(TAG, "card answered but has no readable filesystem -- "
