@@ -134,6 +134,7 @@ extern "C" void app_main(void)
         M5.Display.drawString("192.168.4.1", 16, 240);
         M5.Display.endWrite();
         M5.Display.display();
+        M5.Display.waitDisplay();       // queued, not synchronous
 
         // kids and sched are updated in place, so the page below draws what
         // was just typed rather than what was loaded a moment ago.
@@ -162,6 +163,7 @@ extern "C" void app_main(void)
             M5.Display.drawString("192.168.4.1", 16, 240);
             M5.Display.endWrite();
             M5.Display.display();
+            M5.Display.waitDisplay();   // queued, not synchronous
 
             if (portal_run(&kids, &sched)) {
                 // Straight back round: the credentials are in NVS now.
@@ -338,11 +340,30 @@ extern "C" void app_main(void)
     if (act != ACT_NONE) page_daily_draw(c);
     const int64_t push_ms = (esp_timer_get_time() - t_draw) / 1000;
 
+    // display() QUEUES; waitDisplay() IS THE REFRESH.
+    //
+    // Panel_EPD::display() posts an update_data_t to a FreeRTOS queue and
+    // returns -- the waveform is driven by a background task. So display()
+    // costing 0 ms never meant "the push already happened", and the ~1958 ms
+    // this file used to call a FULL REFRESH was only the cost of drawing
+    // glyphs into a RAM buffer. Neither number ever timed the panel, which is
+    // why the "refresh" looked indifferent to how much of the screen changed.
+    //
+    // THIS MATTERS BEYOND THE LOG LINE. A battery wake deep-sleeps immediately
+    // after drawing, and deep sleep kills the task mid-waveform -- so without
+    // this wait the page would be cut off partway through on every wake that
+    // is not cabled, which is every real one.
+    //
+    // The explicit full-panel rect is deliberate too: display() with no
+    // arguments is display(0,0,0,0), which refreshes only what Panel_EPD's own
+    // dirty tracking recorded. This page repaints every pixel anyway, so
+    // per-region tracking buys nothing and one less thing can go wrong.
     const int64_t t0 = esp_timer_get_time();
-    M5.Display.display();
+    M5.Display.display(0, 0, M5.Display.width(), M5.Display.height());
+    M5.Display.waitDisplay();
     const int64_t ms = (esp_timer_get_time() - t0) / 1000;
 
-    ESP_LOGI(TAG, "FULL REFRESH: draw+push %lld ms, trailing display() %lld ms",
+    ESP_LOGI(TAG, "draw %lld ms, panel refresh %lld ms",
              (long long)push_ms, (long long)ms);
 
     // The alarm. Arming is verified by readback inside wake_arm_next -- a
