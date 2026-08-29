@@ -58,6 +58,21 @@ void state_note_awake(int vbus_mv, bool button_held)
     nvs_close(h);
 }
 
+void state_note_guess(long today, long st_day, int st_state, int act, int btn)
+{
+    if (!state_nvs_init()) return;
+    nvs_handle_t h;
+    if (nvs_open(kNamespace, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_i32(h, "gtoday", (int32_t)today);
+    nvs_set_i32(h, "gday",   (int32_t)st_day);
+    nvs_set_u8(h,  "gstate", (uint8_t)st_state);
+    nvs_set_u8(h,  "gact",   (uint8_t)act);
+    nvs_set_u8(h,  "gbtn",   (uint8_t)(int8_t)btn);
+    nvs_set_u8(h,  "gseen",  1);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
 void state_note_wake(int cause, int button)
 {
     if (!state_nvs_init()) return;
@@ -79,6 +94,21 @@ void state_note_wake(int cause, int button)
                       "VBUS=%dmV, button held=%s",
                  awake ? "YES" : "NO (never got there)",
                  (int)awvbus, awbtn ? "YES" : "no");
+    uint8_t gseen = 0, gstate = 0, gact = 0, gbtn = 0;
+    int32_t gtoday = -1, gday = -1;
+    nvs_get_u8(h, "gseen", &gseen);
+    if (gseen) {
+        nvs_get_i32(h, "gtoday", &gtoday);
+        nvs_get_i32(h, "gday",   &gday);
+        nvs_get_u8(h,  "gstate", &gstate);
+        nvs_get_u8(h,  "gact",   &gact);
+        nvs_get_u8(h,  "gbtn",   &gbtn);
+        ESP_LOGW(TAG, "LAST GUESS: button=%d, today=%ld vs stored day=%ld, "
+                      "state=%u, action=%u (2=SHOW_RESULT means accepted)",
+                 (int)(int8_t)gbtn, (long)gtoday, (long)gday,
+                 (unsigned)gstate, (unsigned)gact);
+        nvs_set_u8(h, "gseen", 0);
+    }
     nvs_set_u8(h, "slept", 0);
     nvs_set_u8(h, "awake", 0);
 

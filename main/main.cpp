@@ -72,6 +72,73 @@ extern "C" void app_main(void)
     ESP_LOGW(TAG, "M5.begin took %lld ms (clear_display=false)",
              (long long)((esp_timer_get_time() - t_begin) / 1000));
 
+    // THE BUTTON SHORT PATH, AND IT RUNS FIRST.
+    //
+    // A guess is acknowledged by the LED and a chirp and nothing else. Two
+    // reasons, both sufficient: a full refresh on this panel is 15-30 s, and
+    // the answer is withheld until the 13:00 wake, so a redraw could only
+    // repaint the same question.
+    //
+    // IT USED TO RUN LAST, and the comment here still claimed it cost "well
+    // under a second". It did not: it sat behind sdconfig_load(), which with a
+    // dead card spends three SPI attempts and an SDMMC fallback at 3s timeouts
+    // -- about twenty seconds of card retries between a child pressing a
+    // button and the LED answering. The measurement that exposed it was a
+    // guess that never got recorded because the board was reset a second after
+    // the press, long before the decision was reached.
+    //
+    // So it now sits immediately after M5.begin(), which is the only thing it
+    // genuinely needs, and the card, the weather cache and the radio are all
+    // below it.
+    //
+    // M5.begin() is called first now -- at 464ms it is affordable, and it is
+    // what brings up the LED and the speaker. That was not true when
+    // M5.begin() appeared to cost 52.7s, which is why this path used to skip
+    // it entirely and had no way to acknowledge anything.
+    if (why == wake_cause::button) {
+        // Everything this path needs, and nothing else. NVS for the state, and
+        // the clock from the RTC so today's date is real -- riddle_decide
+        // refuses a guess whose date does not match the stored screen, and an
+        // unsynced 1970 refuses every press while looking like a dead button.
+        state_nvs_init();
+        wake_sync_clock();
+
+        const int b = wake_button_index();
+
+        riddle_nvs_t st;
+        state_load(&st);
+
+        riddle_input_t in = {};
+        in.reason  = WAKE_GUESS;
+        in.guess   = (int8_t)b;
+        // Not read for a guess -- riddle_decide's WAKE_GUESS case looks only
+        // at state and day -- but 1 was left over from the sample-content era
+        // and read like a real bound. 0 says plainly that it is unused here.
+        in.batch_n = 0;
+        in.today   = riddle_local_day(time(nullptr), RIDDLE_TZ);
+
+        const riddle_action_e act = riddle_decide(&in, &st);
+        state_note_guess((long)in.today, (long)st.day, (int)st.state, (int)act, b);
+
+        // ACKNOWLEDGE WHAT THE STATE MACHINE DECIDED, not what was pressed.
+        // A guess after the answer is out, or against yesterday's screen, is a
+        // no-op -- and telling a child their guess landed when it did not is
+        // worse than telling them it did not.
+        if (act == ACT_SHOW_RESULT) {
+            if (!state_save(&st))
+                ESP_LOGE(TAG, "GUESS NOT SAVED -- it will be forgotten by 13:00");
+            ESP_LOGW(TAG, "guess %d accepted, streak %u", b, (unsigned)st.streak);
+            feedback_guess(b);
+        } else {
+            ESP_LOGW(TAG, "guess %d refused (state=%u, day=%ld vs today=%ld)",
+                     b, (unsigned)st.state, (long)st.day, (long)in.today);
+            feedback_reject();
+        }
+
+        feedback_settle();
+        wake_sleep();
+    }
+
     // RELEASE THE AUDIO STRAPPING PINS IMMEDIATELY unless we are about to
     // chirp. M5.begin() drives G45 and G46 high for the codec, and both are
     // boot strapping pins -- leaving them driven means the NEXT reset lands in
@@ -198,51 +265,6 @@ extern "C" void app_main(void)
 
 
 
-    // THE BUTTON SHORT PATH. A guess is acknowledged by the LED and a chirp
-    // and nothing else. Two reasons, both sufficient: a full refresh on this
-    // panel is 15-30 s, and the answer is withheld until the 13:00 wake, so a
-    // redraw could only repaint the same question. This costs well under a
-    // second.
-    //
-    // M5.begin() is called first now -- at 464ms it is affordable, and it is
-    // what brings up the LED and the speaker. That was not true when
-    // M5.begin() appeared to cost 52.7s, which is why this path used to skip
-    // it entirely and had no way to acknowledge anything.
-    if (why == wake_cause::button) {
-        const int b = wake_button_index();
-
-        riddle_nvs_t st;
-        state_load(&st);
-
-        riddle_input_t in = {};
-        in.reason  = WAKE_GUESS;
-        in.guess   = (int8_t)b;
-        // Not read for a guess -- riddle_decide's WAKE_GUESS case looks only
-        // at state and day -- but 1 was left over from the sample-content era
-        // and read like a real bound. 0 says plainly that it is unused here.
-        in.batch_n = 0;
-        in.today   = riddle_local_day(time(nullptr), RIDDLE_TZ);
-
-        const riddle_action_e act = riddle_decide(&in, &st);
-
-        // ACKNOWLEDGE WHAT THE STATE MACHINE DECIDED, not what was pressed.
-        // A guess after the answer is out, or against yesterday's screen, is a
-        // no-op -- and telling a child their guess landed when it did not is
-        // worse than telling them it did not.
-        if (act == ACT_SHOW_RESULT) {
-            if (!state_save(&st))
-                ESP_LOGE(TAG, "GUESS NOT SAVED -- it will be forgotten by 13:00");
-            ESP_LOGW(TAG, "guess %d accepted, streak %u", b, (unsigned)st.streak);
-            feedback_guess(b);
-        } else {
-            ESP_LOGW(TAG, "guess %d refused (state=%u, day=%ld vs today=%ld)",
-                     b, (unsigned)st.state, (long)st.day, (long)in.today);
-            feedback_reject();
-        }
-
-        feedback_settle();
-        wake_sleep();
-    }
     ESP_LOGW(TAG, "M5.begin returned, board=%d", (int)M5.getBoard());
 
     const int w = M5.Display.width();

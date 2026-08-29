@@ -54,6 +54,13 @@ void state_note_sleeping();
 // cell overnight without ever saying why.
 void state_note_awake(int vbus_mv, bool button_held);
 
+// Records the inputs and outcome of a guess decision, reported on the next
+// boot. The guess path runs for about a second between a button wake and deep
+// sleep, which is far too short to catch on a serial port that does not exist
+// until the board wakes -- so the only way to see why a guess was refused is
+// to write it down.
+void state_note_guess(long today, long st_day, int st_state, int act, int btn);
+
 // Loads the stored state, or zeroes it (RS_IDLE, day 0) when nothing is
 // stored. Returns false only if NVS itself is unavailable -- an absent key is
 // the normal first-boot case, not an error.
