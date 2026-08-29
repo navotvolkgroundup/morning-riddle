@@ -42,6 +42,12 @@ extern "C" void app_main(void)
     // has been guesswork for want of exactly this line.
     ESP_LOGW(TAG, "app_main entered");
 
+    // BEFORE ANYTHING THAT CAN FAIL, AND BEFORE M5.begin(). This writes a
+    // counter to flash, which is the only evidence of a boot that survives to
+    // be read by a host that cannot safely open the serial port. See
+    // state_bump_boot_count().
+    state_bump_boot_count();
+
     // WAKE CAUSE BEFORE M5.begin(), always. The short path decides whether to
     // bring the display up at all, so it has to run before anything does.
     // (M5.begin() is 464ms here, not the 52.7s this comment used to claim.)

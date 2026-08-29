@@ -36,6 +36,22 @@ bool state_nvs_init()
     return ok;
 }
 
+uint32_t state_bump_boot_count()
+{
+    if (!state_nvs_init()) return 0;
+    nvs_handle_t h;
+    if (nvs_open(kNamespace, NVS_READWRITE, &h) != ESP_OK) return 0;
+
+    uint32_t n = 0;
+    nvs_get_u32(h, "boots", &n);        // absent on a fresh device: stays 0
+    n++;
+    nvs_set_u32(h, "boots", n);
+    nvs_commit(h);
+    nvs_close(h);
+    ESP_LOGW(TAG, "boot #%u", (unsigned)n);
+    return n;
+}
+
 bool state_load(riddle_nvs_t *st)
 {
     if (!st) return false;

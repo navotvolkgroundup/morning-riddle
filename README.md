@@ -489,9 +489,30 @@ up the vendor's own figure in about a minute.
   image. ~1958 ms is about a ninth of this panel's real refresh time and does
   not vary with content, so the push is almost certainly returning without
   driving the waveform. This is the top open bug.
-- **The board boots into the ROM bootloader.** `esptool` syncs with
-  `--before no_reset` after a full power-off, so the strapping is being sampled
-  as DOWNLOAD at power-on, before any firmware runs. G45/G46 are the documented
-  suspects — Espressif states GPIO46 high with GPIO0 low is an invalid
-  combination — but a driven pin should not survive a cold boot, so something
-  external is holding it.
+- **The board does not execute the application at all.** This is the blocker,
+  and it is measured rather than inferred.
+
+  The three obvious witnesses all lie on this board. **Serial** cannot be
+  trusted: opening the port asserts DTR, which forces the ROM bootloader, so
+  every download-mode log captured reads `rst:0x15 (USB_UART_CHIP_RESET)` —
+  my own tooling, every time. **The panel** cannot be trusted: a push that
+  returns in ~1958 ms is probably never reaching the glass, so an unchanged
+  screen says nothing. **The LED** cannot be trusted either: it only ever fires
+  on the guess path, which has never executed, so it has never been observed
+  working.
+
+  So the test avoids all three. `state_bump_boot_count()` writes a counter to
+  NVS before anything else in `app_main`. Dump the partition with esptool,
+  power-cycle the board, dump it again:
+
+      esptool --before no_reset read_flash 0x9000 0x6000 nvs.bin
+
+  Across a full power-off with the SD card removed, the 24 KB partition is
+  **byte-identical** and no `boots` key exists. The firmware does not run.
+
+  What that leaves: Espressif documents that GPIO46 is ignored when GPIO0 is
+  high, so a board in download mode had **GPIO0 low at reset**. That exonerates
+  G45/G46 (and makes the fix in `f79dee9` correct but irrelevant). eFuses are
+  all at factory defaults — no secure boot, no `DIS_FORCE_DOWNLOAD`, no JTAG
+  lock — so nothing is permanently latched. Something physical is holding GPIO0,
+  on a unit whose buttons have stuck twice before.

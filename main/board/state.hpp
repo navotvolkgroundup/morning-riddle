@@ -24,6 +24,15 @@ extern "C" {
 // after the network is brought up, so the portal boot-looped the board.
 bool state_nvs_init();
 
+// Increments a boot counter in NVS and returns the new value.
+//
+// THE ONLY WITNESS THIS BOARD HAS. Serial forces the ROM bootloader when the
+// port is opened, the panel may not be reaching the glass, and the LED has
+// never been observed working. A counter in flash is testable from the host
+// with esptool alone: dump the nvs partition, power-cycle, dump again. If the
+// bytes changed, the application ran. Nothing else currently proves that.
+uint32_t state_bump_boot_count();
+
 // Loads the stored state, or zeroes it (RS_IDLE, day 0) when nothing is
 // stored. Returns false only if NVS itself is unavailable -- an absent key is
 // the normal first-boot case, not an error.
