@@ -87,6 +87,34 @@ extern "C" void app_main(void)
     // boot-looped the board.
     state_nvs_init();
 
+    // SETUP ON DEMAND: hold a button and press reset.
+    //
+    // The names and the timetable were meant to arrive on the SD card. This
+    // board's reader has never completed a data-block transfer, so without a
+    // gesture there is no way to get them onto a device on a wall at all. It
+    // has to be a COLD boot with a button held -- a button WAKE is a guess,
+    // and turning a child's answer into a setup screen would be a bad joke.
+    if (why == wake_cause::cold && wake_button_held()) {
+        ESP_LOGW(TAG, "button held at reset -- opening setup");
+        M5.Display.startWrite();
+        M5.Display.fillScreen(TFT_WHITE);
+        M5.Display.setTextColor(TFT_BLACK);
+        M5.Display.setTextSize(2);
+        M5.Display.drawString("Setup", 16, 40);
+        M5.Display.drawString("Join this network:", 16, 100);
+        M5.Display.setTextColor(TFT_RED);
+        M5.Display.drawString(PORTAL_AP_SSID, 16, 140);
+        M5.Display.setTextColor(TFT_BLACK);
+        M5.Display.drawString("then open", 16, 200);
+        M5.Display.drawString("192.168.4.1", 16, 240);
+        M5.Display.endWrite();
+        M5.Display.display();
+
+        // kids and sched are updated in place, so the page below draws what
+        // was just typed rather than what was loaded a moment ago.
+        portal_run(&kids, &sched);
+    }
+
     // Network first, so the clock below is the real one. All three steps are
     // allowed to fail: no card, no credentials, no network. The page still
     // draws from cache -- weather goes stale and the date may be wrong, which
@@ -110,7 +138,7 @@ extern "C" void app_main(void)
             M5.Display.endWrite();
             M5.Display.display();
 
-            if (portal_run()) {
+            if (portal_run(&kids, &sched)) {
                 // Straight back round: the credentials are in NVS now.
                 if (net_connect()) { net_sync_time(); net_stop(); }
             }

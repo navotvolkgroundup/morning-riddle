@@ -28,6 +28,7 @@
 #include "daily_layout.h"
 #include "he_text.h"
 #include "riddle_batch.h"
+#include "formdata.h"
 
 #include <cstdio>
 
@@ -74,6 +75,7 @@ __attribute__((used)) void *const volatile kRefs[] = {
     (void *)he_line_break,
 
     (void *)riddle_batch_parse,
+    (void *)form_field,
 };
 
 }  // namespace

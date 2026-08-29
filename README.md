@@ -260,8 +260,51 @@ system clock would be forgotten before it was ever used.
 Every step may fail — no card, no file, no network — and the page still draws
 from cache. Visibly stale beats blank.
 
-Verified on hardware: card mounts (14910 MB), and a missing `wifi.json` is
-reported as exactly that.
+Verified on hardware, once: the card mounted at 14910 MB and a missing
+`wifi.json` was reported as exactly that. It has not mounted since — see below.
+
+## The card reader never worked, so setup moved to the phone
+
+This board's microSD path does not complete a data-block transfer. Both modes
+fail at the same step:
+
+    sdmmc_init_sd_ssr: sdmmc_send_cmd returned 0x107   (SPI, 3 attempts, power-cycled between)
+    sdmmc_init_sd_ssr: sdmmc_send_cmd returned 0x107   (SDMMC 1-line, same pins)
+
+That step is late. The card has already answered CMD0, CMD8 and ACMD41 and
+handed over its CID and CSD, so **commands work and data blocks do not**. An
+absent card fails far earlier. Reformatting the card FAT32 changed nothing, and
+could not have: the failure is in card init, before any filesystem is read.
+
+The card carried the two most personal pieces of content — the kids' names and
+the school timetable — which left them with no route onto the device at all.
+So they moved to the setup page:
+
+**Hold any button and press reset.** The board publishes
+`Morning-Riddle-Setup`, and `192.168.4.1` serves one form: WiFi, four children
+with birthdays, and seven days of subjects. It is prefilled with whatever the
+board currently holds, so fixing one subject does not mean retyping the week.
+
+It has to be a **cold boot with a button held**, not a button wake — a button
+wake is a child's guess, and turning that into a setup screen would be a bad
+joke.
+
+**Fields, not JSON.** Each day is one box of comma-separated subjects, which is
+exactly what `schedule_t` stores after parsing. So this path needs no parser
+and no serialiser, and the form renders straight from the structs. The card
+import still works and still wins when a card is readable; it is now the
+fallback rather than the plan.
+
+`core/formdata.c` is the one fiddly part and is host-tested, because both bugs
+it has had are invisible from a phone:
+
+- **An unanchored search.** `strstr(body, "d1=")` also matches the tail of
+  `k0d1=`. Harmless with two fields; the form now has twenty-one, and the
+  symptom is one box reading another box's value.
+- **A half-decoded character.** Truncation counts *urlencoded* bytes and one
+  Hebrew letter is nine of them (`%D7%9E`), so a long line gets cut mid-letter.
+  What survived was a lead byte with no continuation, and `hebrew.cpp` indexes
+  on the decoded codepoint — it would draw the wrong glyph, not stop early.
 
 ## G46 is a boot strapping pin, and it is the speaker enable
 
@@ -392,7 +435,14 @@ because the screen has nothing to say, not because it is slow.
 
 ## What is NOT done yet
 
-- **No board code at all.** No display, RTC, buttons, power, or `main`.
+- **The guess path has never executed.** It only runs on a battery-powered
+  button wake, and USB serial is gone in exactly that case — so the one
+  interaction a child actually performs is the one piece of this that has never
+  been observed running. It needs a deliberate approach: record the outcome to
+  NVS and read it back on the next cabled boot.
+- **The setup form has not been round-tripped from a phone yet.** It builds,
+  its parsing is host-tested, and the gesture opens it; nobody has typed a
+  Hebrew timetable into it and watched the page redraw.
 - **Two cross-artifact checks were dropped, deliberately, not silently.** The
   Waveshare tree had `make icons` (every `wmo_icon()` name has a matching
   `.bmp` under `Weather_img/`) and `make buttons` (every code the classifier
@@ -400,3 +450,6 @@ because the screen has nothing to say, not because it is slow.
   Waveshare-specific artefacts that do not exist here. Both caught real bugs
   and both need equivalents once the M5GFX drawing and M5Unified button paths
   exist. Until then `wmo_icon()` is tested but unused.
+- **The ~17100 ms refresh measurements are unexplained.** They were consistent
+  across many boots with the same timing code. The current firmware is ~2 s,
+  equally consistently. Something changed and it is not known what.

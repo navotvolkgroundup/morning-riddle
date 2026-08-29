@@ -50,6 +50,16 @@ void nvs_put_blob(const char *key, const void *data, size_t len)
 
 }  // namespace
 
+void sdconfig_store_kids(const kids_t *kids)
+{
+    if (kids && state_nvs_init()) nvs_put_blob(kKeyKids, kids, sizeof *kids);
+}
+
+void sdconfig_store_schedule(const schedule_t *sched)
+{
+    if (sched && state_nvs_init()) nvs_put_blob(kKeySched, sched, sizeof *sched);
+}
+
 void sdconfig_load(kids_t *kids, schedule_t *sched)
 {
     if (!kids || !sched) return;

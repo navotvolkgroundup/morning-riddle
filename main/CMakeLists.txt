@@ -10,6 +10,7 @@ idf_component_register(
         "core/daily_layout.c"
         "core/he_text.c"
         "core/riddle_batch.c"
+        "core/formdata.c"
         "ui/hebrew.cpp"
         "ui/page_daily.cpp"
         "board/wake.cpp"

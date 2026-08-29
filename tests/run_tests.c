@@ -20,6 +20,7 @@
 #include "daily_layout.h"
 #include "he_text.h"
 #include "riddle_batch.h"
+#include "formdata.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -930,6 +931,88 @@ static int test_sd_json(void)
     return 0;
 }
 
+// --------------------------------------------------------------- formdata ---
+static int test_formdata(void)
+{
+    char v[32];
+
+    // Ordinary fields, first / middle / last.
+    const char *b = "ssid=home&pass=abc&d0=x";
+    CHECK(form_field(b, "ssid", v, sizeof v) && strcmp(v, "home") == 0);
+    CHECK(form_field(b, "pass", v, sizeof v) && strcmp(v, "abc") == 0);
+    CHECK(form_field(b, "d0",   v, sizeof v) && strcmp(v, "x") == 0);
+    CHECK(!form_field(b, "d1", v, sizeof v));
+
+    // THE ANCHORING BUG. "d1" must not be found inside "k0d1" or as the tail
+    // of "kd1", and a name that is a prefix of another must not match it.
+    CHECK(!form_field("k0d1=7", "d1", v, sizeof v));
+    CHECK(form_field("k0d1=7&d1=9", "d1", v, sizeof v) && strcmp(v, "9") == 0);
+    CHECK(form_field("d0=a&d0x=b", "d0", v, sizeof v) && strcmp(v, "a") == 0);
+    CHECK(form_field("ssidx=no&ssid=yes", "ssid", v, sizeof v) &&
+          strcmp(v, "yes") == 0);
+
+    // An empty value is present, not absent -- clearing a day is how a parent
+    // says "nothing on Friday", and reading it as absent would keep the old
+    // line forever.
+    CHECK(form_field("d5=&d6=x", "d5", v, sizeof v) && v[0] == '\0');
+
+    // Percent and plus decoding. A password may legitimately contain either.
+    CHECK(form_field("pass=a+b%26c", "pass", v, sizeof v) &&
+          strcmp(v, "a b&c") == 0);
+    CHECK(form_field("pass=100%25%20sure", "pass", v, sizeof v) &&
+          strcmp(v, "100% sure") == 0);
+    // A stray '%' with nothing usable after it is kept, not silently eaten.
+    CHECK(form_field("pass=50%zz", "pass", v, sizeof v) &&
+          strcmp(v, "50%zz") == 0);
+
+    // Hebrew survives a round trip. "אב" is %D7%90%D7%91.
+    CHECK(form_field("d0=%D7%90%D7%91", "d0", v, sizeof v) &&
+          strcmp(v, "\xd7\x90\xd7\x91") == 0);
+
+    // THE HALF-CHARACTER BUG. Truncation counts urlencoded bytes, so a value
+    // that does not fit gets cut mid-letter. What lands must still be valid
+    // UTF-8 -- shorter is fine, a lead byte with no continuation is not.
+    {
+        char small[8];   // 7 usable bytes: "%D7%90%" truncates inside a letter
+        CHECK(form_field("d0=%D7%90%D7%91%D7%92", "d0", small, sizeof small));
+        CHECK(strcmp(small, "\xd7\x90") == 0);
+        for (const char *c = small; *c; c++)
+            CHECK(((unsigned char)*c & 0x80) == 0 || (unsigned char)*c >= 0xC0 ||
+                  ((unsigned char)c[-1] & 0x80));
+    }
+    {
+        // Cut so the raw text ends on a bare lead byte: that byte must go.
+        char small[4];
+        CHECK(form_field("d0=x%D7%90", "d0", small, sizeof small));
+        CHECK(strcmp(small, "x") == 0);
+    }
+    {
+        // A three-byte character, with room for exactly one of the two.
+        char small[10];
+        CHECK(form_field("d0=%E2%82%AC%E2%82%AC", "d0", small, sizeof small));
+        CHECK(strcmp(small, "\xe2\x82\xac") == 0);
+    }
+    {
+        // Too small to hold even one: empty is the right answer. Two of the
+        // three bytes would be a lead with a lone continuation, which is not
+        // a character at all.
+        char tiny[8];
+        CHECK(form_field("d0=%E2%82%AC", "d0", tiny, sizeof tiny));
+        CHECK(tiny[0] == '\0');
+    }
+
+    // Nothing dereferences a null.
+    CHECK(!form_field(NULL, "d0", v, sizeof v));
+    CHECK(!form_field("d0=x", NULL, v, sizeof v));
+    CHECK(!form_field("d0=x", "d0", NULL, sizeof v));
+    CHECK(!form_field("d0=x", "d0", v, 0));
+
+    // A name too long for the internal key buffer is refused, not truncated
+    // into a match against something else.
+    CHECK(!form_field("d0=x", "a_very_long_field_name_indeed", v, sizeof v));
+    return 0;
+}
+
 int main(void)
 {
     struct { const char *name; int (*fn)(void); } tests[] = {
@@ -951,6 +1034,7 @@ int main(void)
         { "daily_layout",      test_daily_layout },
         { "he_text",           test_he_text },
         { "riddle_batch",      test_riddle_batch },
+        { "formdata",          test_formdata },
     };
     for (unsigned i = 0; i < sizeof tests / sizeof tests[0]; i++) {
         if (tests[i].fn()) {

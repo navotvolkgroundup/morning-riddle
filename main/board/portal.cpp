@@ -1,7 +1,9 @@
 #include "portal.hpp"
 
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 
 #include "esp_event.h"
 #include "esp_http_server.h"
@@ -13,6 +15,12 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 
+#include "sdconfig.hpp"
+
+extern "C" {
+#include "formdata.h"
+}
+
 static const char *TAG = "portal";
 
 namespace {
@@ -22,120 +30,220 @@ constexpr const char *kKeySsid   = "wifi_ssid";
 constexpr const char *kKeyPass   = "wifi_pass";
 constexpr int kSubmitted = BIT0;
 
-EventGroupHandle_t g_done = nullptr;
-httpd_handle_t     g_http = nullptr;
+EventGroupHandle_t g_done  = nullptr;
+httpd_handle_t     g_http  = nullptr;
+kids_t            *g_kids  = nullptr;
+schedule_t        *g_sched = nullptr;
+
+// Sunday first: the Israeli school week starts there, and schedule_t is
+// indexed 0=Sunday to match schedule_weekday(). A form that listed Monday
+// first would put every subject on the wrong day with no visible symptom.
+const char *const kDayName[SCHED_DAYS] = {
+    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
+};
 
 // Deliberately plain. This page is typed into by a parent standing in a
 // kitchen, on a phone, once. No external assets -- there is no internet on
 // this network by definition, so anything remote would simply fail to load.
-constexpr const char *kPage =
+constexpr const char *kHead =
     "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>"
+    "<meta charset=utf-8>"
     "<title>Morning Riddle setup</title>"
-    "<style>body{font-family:system-ui,sans-serif;margin:2rem auto;max-width:22rem;padding:0 1rem}"
-    "h1{font-size:1.3rem}label{display:block;margin:1rem 0 .25rem}"
+    "<style>body{font-family:system-ui,sans-serif;margin:1.5rem auto;max-width:24rem;padding:0 1rem}"
+    "h1{font-size:1.3rem}h2{font-size:1rem;margin:2rem 0 0;border-top:1px solid #ddd;padding-top:1rem}"
+    "label{display:block;margin:.9rem 0 .25rem;font-size:.9rem}"
     "input{width:100%;padding:.6rem;font-size:1rem;box-sizing:border-box}"
-    "button{margin-top:1.5rem;width:100%;padding:.8rem;font-size:1rem}"
-    "p{color:#555;font-size:.9rem}</style>"
-    "<h1>Morning Riddle</h1>"
-    "<p>Which network should the board join?</p>"
-    "<form method=POST action=/save>"
-    "<label for=s>Network name</label><input id=s name=ssid autocapitalize=off autocorrect=off>"
-    "<label for=p>Password</label><input id=p name=pass type=password>"
+    ".b{display:flex;gap:.5rem}.b input{width:4rem}"
+    "button{margin:1.5rem 0 3rem;width:100%;padding:.8rem;font-size:1rem}"
+    "p{color:#555;font-size:.85rem}</style>"
+    "<h1>Morning Riddle</h1><form method=POST action=/save>";
+
+constexpr const char *kWifi =
+    "<h2>WiFi</h2>"
+    "<p>Leave blank to keep the current network.</p>"
+    "<label for=s>Network name</label>"
+    "<input id=s name=ssid autocapitalize=off autocorrect=off>"
+    "<label for=p>Password</label><input id=p name=pass type=password>";
+
+constexpr const char *kTail =
     "<button type=submit>Save</button></form>"
     "<p>Stored on the board only.</p>";
 
-constexpr const char *kSaved =
-    "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>"
-    "<title>Saved</title><body style='font-family:system-ui,sans-serif;margin:2rem'>"
-    "<h1>Saved</h1><p>The board is joining your network. You can close this page.</p>";
-
-// Percent-decoding, in place. Form bodies arrive urlencoded and a password
-// with a space, '&' or '+' in it is completely ordinary -- decoding it wrongly
-// would store a subtly incorrect password and present as "the network refuses
-// us", which is a miserable thing to debug from a wall.
-void url_decode(char *s)
+// Escapes into an HTML attribute. Hebrew passes through untouched -- it is
+// UTF-8 and none of its bytes are special here -- but an apostrophe in a name
+// or a subject would end the attribute early and silently truncate the field,
+// which is exactly the kind of thing nobody tests with.
+void esc(const char *in, char *out, size_t out_len)
 {
-    char *o = s;
-    for (char *i = s; *i; i++) {
-        if (*i == '+') {
-            *o++ = ' ';
-        } else if (*i == '%' && i[1] && i[2]) {
-            auto hex = [](char c) -> int {
-                if (c >= '0' && c <= '9') return c - '0';
-                if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-                if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-                return -1;
-            };
-            const int hi = hex(i[1]), lo = hex(i[2]);
-            if (hi >= 0 && lo >= 0) { *o++ = (char)(hi * 16 + lo); i += 2; }
-            else                    { *o++ = *i; }
-        } else {
-            *o++ = *i;
+    size_t o = 0;
+    for (const unsigned char *p = (const unsigned char *)in; *p && o + 7 < out_len; p++) {
+        const char *rep = nullptr;
+        switch (*p) {
+            case '&':  rep = "&amp;";  break;
+            case '<':  rep = "&lt;";   break;
+            case '>':  rep = "&gt;";   break;
+            case '"':  rep = "&quot;"; break;
+            case '\'': rep = "&#39;";  break;
+            default:   out[o++] = (char)*p; continue;
+        }
+        const size_t n = std::strlen(rep);
+        std::memcpy(out + o, rep, n);
+        o += n;
+    }
+    out[o] = '\0';
+}
+
+// Builds the page into `buf`. Everything is prefilled from what the board
+// currently holds, so submitting an untouched form stores exactly what was
+// there -- a parent fixing one subject must not have to retype the week.
+void render(char *buf, size_t cap)
+{
+    char v[SCHED_LINE_MAX * 6 + 8];
+    size_t n = 0;
+    auto add = [&](const char *fmt, ...) {
+        if (n >= cap) return;
+        va_list ap;
+        va_start(ap, fmt);
+        const int w = std::vsnprintf(buf + n, cap - n, fmt, ap);
+        va_end(ap);
+        if (w > 0) n += ((size_t)w < cap - n) ? (size_t)w : (cap - n);
+    };
+
+    add("%s%s", kHead, kWifi);
+
+    if (g_kids) {
+        add("<h2>Children</h2><p>Name, then birthday. Blank rows are ignored.</p>");
+        for (int i = 0; i < KIDS_MAX; i++) {
+            const bool have = i < g_kids->count;
+            esc(have ? g_kids->kid[i].name : "", v, sizeof v);
+            add("<label>Child %d</label><input name=k%dn maxlength=23 value=\"%s\">"
+                "<div class=b>"
+                "<input name=k%dm inputmode=numeric placeholder=month value=\"",
+                i + 1, i, v, i);
+            if (have && g_kids->kid[i].birth_month) add("%u", (unsigned)g_kids->kid[i].birth_month);
+            add("\"><input name=k%dd inputmode=numeric placeholder=day value=\"", i);
+            if (have && g_kids->kid[i].birth_day) add("%u", (unsigned)g_kids->kid[i].birth_day);
+            add("\"></div>");
         }
     }
-    *o = '\0';
+
+    if (g_sched) {
+        add("<h2>Timetable</h2><p>Subjects for each day, separated by commas. "
+            "Leave a day blank and nothing draws for it.</p>");
+        for (int d = 0; d < SCHED_DAYS; d++) {
+            esc(g_sched->line[d], v, sizeof v);
+            add("<label>%s</label><input name=d%d value=\"%s\">", kDayName[d], d, v);
+        }
+    }
+
+    add("%s", kTail);
 }
 
-// Pulls one field out of an urlencoded body. Returns false if absent.
-bool field(const char *body, const char *name, char *out, size_t out_len)
-{
-    char key[24];
-    std::snprintf(key, sizeof key, "%s=", name);
-    const char *p = std::strstr(body, key);
-    if (!p) return false;
-    p += std::strlen(key);
-    const char *end = std::strchr(p, '&');
-    size_t n = end ? (size_t)(end - p) : std::strlen(p);
-    if (n >= out_len) n = out_len - 1;
-    std::memcpy(out, p, n);
-    out[n] = '\0';
-    url_decode(out);
-    return true;
-}
+constexpr const char *kSaved =
+    "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>"
+    "<meta charset=utf-8><title>Saved</title>"
+    "<body style='font-family:system-ui,sans-serif;margin:2rem'>"
+    "<h1>Saved</h1><p>You can close this page. The board redraws in a moment.</p>";
+
+// 12KB. Worst case is seven timetable lines of SCHED_LINE_MAX bytes plus four
+// names, all HTML-escaped; static because a handler task's stack is 4KB.
+char g_page[12288];
 
 esp_err_t get_root(httpd_req_t *r)
 {
+    render(g_page, sizeof g_page);
     httpd_resp_set_type(r, "text/html");
-    return httpd_resp_send(r, kPage, HTTPD_RESP_USE_STRLEN);
+    return httpd_resp_send(r, g_page, HTTPD_RESP_USE_STRLEN);
 }
+
+// 8KB. Hebrew urlencodes to nine bytes a letter (%D7%9E), so a full week of
+// 128-byte subject lines plus four names is comfortably over the 512 the WiFi
+// -only form used. Static, for the same stack reason as g_page.
+char g_body[8192];
 
 esp_err_t post_save(httpd_req_t *r)
 {
-    char body[512];
-    int total = r->content_len < (int)sizeof body - 1 ? r->content_len
-                                                      : (int)sizeof body - 1;
+    int total = r->content_len < (int)sizeof g_body - 1 ? r->content_len
+                                                       : (int)sizeof g_body - 1;
     int got = 0;
     while (got < total) {
-        const int n = httpd_req_recv(r, body + got, total - got);
+        const int n = httpd_req_recv(r, g_body + got, total - got);
         if (n <= 0) { httpd_resp_send_500(r); return ESP_FAIL; }
         got += n;
     }
-    body[got] = '\0';
+    g_body[got] = '\0';
 
+    // ---- WiFi. Blank SSID means "leave what is stored alone" -------------
     char ssid[33] = {}, pass[65] = {};
-    const bool ok = field(body, "ssid", ssid, sizeof ssid) && ssid[0] &&
-                    field(body, "pass", pass, sizeof pass);
-    std::memset(body, 0, sizeof body);          // the password was in here
-
-    if (!ok) {
-        httpd_resp_set_type(r, "text/html");
-        httpd_resp_send(r, kPage, HTTPD_RESP_USE_STRLEN);
-        return ESP_OK;
+    if (form_field(g_body, "ssid", ssid, sizeof ssid) && ssid[0]) {
+        form_field(g_body, "pass", pass, sizeof pass);
+        nvs_handle_t h;
+        if (nvs_open(kNamespace, NVS_READWRITE, &h) == ESP_OK) {
+            nvs_set_str(h, kKeySsid, ssid);
+            nvs_set_str(h, kKeyPass, pass);
+            nvs_commit(h);
+            nvs_close(h);
+            ESP_LOGI(TAG, "stored credentials for \"%s\"", ssid);   // SSID only, ever
+        } else {
+            ESP_LOGE(TAG, "could not open NVS to store credentials");
+        }
+        std::memset(pass, 0, sizeof pass);
     }
 
-    nvs_handle_t h;
-    if (nvs_open(kNamespace, NVS_READWRITE, &h) == ESP_OK) {
-        nvs_set_str(h, kKeySsid, ssid);
-        nvs_set_str(h, kKeyPass, pass);
-        nvs_commit(h);
-        nvs_close(h);
-        // SSID only, ever.
-        ESP_LOGI(TAG, "stored credentials for \"%s\"", ssid);
-    } else {
-        ESP_LOGE(TAG, "could not open NVS to store credentials");
+    // ---- Children --------------------------------------------------------
+    //
+    // Built into a fresh struct and swapped in whole. Editing g_kids in place
+    // would leave a half-applied list behind if a later field were malformed,
+    // and the page would then draw a child who is no longer in the form.
+    if (g_kids) {
+        kids_t k = {};
+        for (int i = 0; i < KIDS_MAX; i++) {
+            char name[KID_NAME_MAX] = {}, m[4] = {}, d[4] = {}, key[8];
+            std::snprintf(key, sizeof key, "k%dn", i);
+            if (!form_field(g_body, key, name, sizeof name) || !name[0]) continue;
+
+            kid_t &kid = k.kid[k.count];
+            std::strncpy(kid.name, name, sizeof kid.name - 1);
+            std::snprintf(key, sizeof key, "k%dm", i);
+            if (form_field(g_body, key, m, sizeof m)) kid.birth_month = (uint8_t)std::atoi(m);
+            std::snprintf(key, sizeof key, "k%dd", i);
+            if (form_field(g_body, key, d, sizeof d)) kid.birth_day = (uint8_t)std::atoi(d);
+
+            // A birthday needs both halves to mean anything, and an
+            // out-of-range one would make kids_valid() reject the whole list.
+            if (kid.birth_month < 1 || kid.birth_month > 12 ||
+                kid.birth_day   < 1 || kid.birth_day   > 31) {
+                kid.birth_month = kid.birth_day = 0;
+            }
+            k.count++;
+        }
+        if (kids_valid(&k)) {
+            *g_kids = k;
+            sdconfig_store_kids(&k);
+            ESP_LOGI(TAG, "stored %d child(ren)", k.count);
+        } else {
+            ESP_LOGW(TAG, "children rejected by kids_valid; keeping what was stored");
+        }
     }
-    std::memset(ssid, 0, sizeof ssid);
-    std::memset(pass, 0, sizeof pass);
+
+    // ---- Timetable -------------------------------------------------------
+    //
+    // Stored verbatim: schedule_t holds each day pre-joined, and comma-space
+    // is exactly what the form asks for. No parse, no serialise.
+    if (g_sched) {
+        schedule_t sc = {};
+        for (int d = 0; d < SCHED_DAYS; d++) {
+            char key[4];
+            std::snprintf(key, sizeof key, "d%d", d);
+            form_field(g_body, key, sc.line[d], sizeof sc.line[d]);
+        }
+        *g_sched = sc;
+        sdconfig_store_schedule(&sc);
+        ESP_LOGI(TAG, "stored a timetable (%s)",
+                 schedule_is_empty(&sc) ? "empty" : "present");
+    }
+
+    std::memset(g_body, 0, sizeof g_body);      // the password was in here
 
     httpd_resp_set_type(r, "text/html");
     httpd_resp_send(r, kSaved, HTTPD_RESP_USE_STRLEN);
@@ -204,10 +312,13 @@ bool portal_have_credentials()
     return portal_load_credentials(s, sizeof s, p, sizeof p);
 }
 
-bool portal_run(int timeout_ms)
+bool portal_run(kids_t *kids, schedule_t *sched, int timeout_ms)
 {
     ESP_LOGW(TAG, "starting setup AP \"%s\" -- join it and open 192.168.4.1",
              PORTAL_AP_SSID);
+
+    g_kids  = kids;
+    g_sched = sched;
 
     if (!g_done) g_done = xEventGroupCreate();
     xEventGroupClearBits(g_done, kSubmitted);
@@ -233,6 +344,8 @@ bool portal_run(int timeout_ms)
 
     httpd_config_t hcfg = HTTPD_DEFAULT_CONFIG();
     hcfg.uri_match_fn = httpd_uri_match_wildcard;
+    // The default 4KB is tight now that a handler renders the whole form.
+    hcfg.stack_size   = 8192;
     if (httpd_start(&g_http, &hcfg) != ESP_OK) {
         ESP_LOGE(TAG, "http server would not start");
         return false;
@@ -254,7 +367,14 @@ bool portal_run(int timeout_ms)
     esp_wifi_stop();
     esp_wifi_set_mode(WIFI_MODE_STA);   // leave the radio ready for a join
 
-    const bool ok = (bits & kSubmitted) != 0;
-    ESP_LOGW(TAG, "portal %s", ok ? "stored credentials" : "timed out");
-    return ok;
+    g_kids = nullptr; g_sched = nullptr;
+
+    // Credentials, not "was submitted": a visit that only fixed a subject line
+    // leaves the network exactly as it was, and the caller must not read that
+    // as a board that still has nowhere to connect.
+    const bool have = portal_have_credentials();
+    ESP_LOGW(TAG, "portal %s; credentials %s",
+             (bits & kSubmitted) ? "submitted" : "timed out",
+             have ? "stored" : "still missing");
+    return have;
 }
