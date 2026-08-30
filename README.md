@@ -347,6 +347,59 @@ chip is remembering a stale reading. I spent hours on a G45/G46 theory, shipped
 a commit for it, and it was irrelevant. Check the latch first: it is one
 command to rule out.
 
+## The SD card shares the panel's bus, and mounting it kills the display
+
+**The single most expensive bug in this project.** Read this before adding
+anything that touches SPI.
+
+From M5Stack's PaperColor pinout:
+
+| | pins |
+|---|---|
+| e-paper | **G15 SPI_CLK, G13 SPI_MOSI**, G44 CS, G43 DC, G11 BUSY, G12 RST |
+| microSD | **G15 SPI_CLK, G13 SPI_MOSI**, G14 MISO, G47 CS |
+
+CLK and MOSI are the same wires. Mounting the card reconfigures them, and the
+SDMMC fallback hands G15/G13 to a different peripheral outright. The panel's
+bus does not survive it.
+
+**The symptom is a display that looks dead but is not.** After `sd_mount()` the
+page renders, `pushSprite()` returns, a refresh is reported, and nothing changes
+on the glass. Nothing errors. Three pushes of the identical image in one boot:
+
+| when | time | result |
+|---|---|---|
+| before `sd_mount()` | **17136 ms** | ink moves |
+| after `sd_mount()` | 1991 ms | nothing |
+| after WiFi | 1993 ms | nothing (WiFi is innocent) |
+
+17 s is a real Spectra 6 waveform. ~2 s is the driver returning without driving
+anything.
+
+`sd_mount()` now refuses and says so. Nothing needs it: the kids and the
+timetable go through the setup page into NVS. If it is ever revived it must run
+**before** `M5.begin()`, or re-initialise the panel afterwards.
+
+**Two days went into this, and the method was the problem.** A frozen screen was
+read as evidence about the panel, when it is equally consistent with a board
+running no code, a board in the ROM bootloader, and a board whose SPI bus has
+been taken away. All three happened. Six fixes were written for `EPD_EN` before
+anyone read the pin, and it was HIGH the whole time. The one measurement that
+resolved it -- the same image pushed at three points in one boot -- was
+available from the first hour.
+
+## The panel is driven by pushSprite, never by display()
+
+`M5.Display.display()` does not drive this panel. It renders, reports a refresh,
+and moves no ink -- 1909 ms every time, whatever changed on screen.
+
+M5Stack's own firmware never calls it. It draws into an off-screen `M5Canvas`
+and calls `pushSprite()`, which measures 17138 ms and puts real ink down.
+
+All drawing therefore goes through `ui_canvas()` in `ui/gfx_target.*`, and
+`ui_canvas_push()` sends it and waits. Rendering into RAM costs ~40 ms against
+~1960 ms straight to the panel, so the page is also much cheaper to draw.
+
 ## The board latches into DOWNLOAD mode, and only a watchdog reset clears it
 
 **Read this before concluding a board is dead. It cost most of a day.**
