@@ -67,6 +67,10 @@ extern "C" void app_main(void)
     // and asking it needs the I2C that M5.begin() just brought up. Without this
     // every overnight wake would be indistinguishable from someone pressing
     // power, and the reveal check keys off the wake cause.
+    // The panel's rail is a PM1 GPIO and comes back LOW after a real power-off.
+    // Nothing draws without this, and nothing complains either.
+    wake_panel_power_on();
+
     if (why == wake_cause::cold && wake_was_pm1_rtc()) {
         ESP_LOGW(TAG, "PM1 says this was an RTC wake, not a cold boot");
         why = wake_cause::alarm;

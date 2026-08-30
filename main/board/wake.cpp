@@ -189,6 +189,9 @@ M5PM1 g_pm1;
 // table, and the same pin the factory firmware arms in hal.cpp.
 constexpr m5pm1_gpio_num_t kPm1RtcWake = M5PM1_GPIO_NUM_2;
 
+// PM1 GPIO0 switches the e-paper rail. Named EPD_EN in M5Stack's own hal.h.
+constexpr m5pm1_gpio_num_t kPm1EpdEn = M5PM1_GPIO_NUM_0;
+
 bool pm1_ready()
 {
     static int state = -1;
@@ -200,6 +203,19 @@ bool pm1_ready()
     return state == 1;
 }
 }  // namespace
+
+void wake_panel_power_on()
+{
+    if (!pm1_ready()) {
+        ESP_LOGE(TAG, "no PM1: cannot power the panel, the screen will not update");
+        return;
+    }
+    const bool ok =
+        g_pm1.gpioSetFunc(kPm1EpdEn, M5PM1_GPIO_FUNC_GPIO) == M5PM1_OK &&
+        g_pm1.gpioSetMode(kPm1EpdEn, M5PM1_GPIO_MODE_OUTPUT) == M5PM1_OK &&
+        g_pm1.gpioSetOutput(kPm1EpdEn, 1) == M5PM1_OK;
+    ESP_LOGW(TAG, "panel rail (PM1 GPIO0 / EPD_EN) %s", ok ? "on" : "WOULD NOT TURN ON");
+}
 
 bool wake_was_pm1_rtc()
 {

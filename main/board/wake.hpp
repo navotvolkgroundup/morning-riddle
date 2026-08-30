@@ -97,6 +97,19 @@ bool wake_button_held();
 //
 // Holding a button at boot also refuses, as a deliberate escape hatch for a
 // battery-powered board that would otherwise be asleep whenever you reach it.
+// Powers the e-paper panel's rail on. MUST run after M5.begin() and BEFORE
+// anything draws.
+//
+// EPD_EN is PM1 GPIO0 -- the panel's supply is switched by the PMIC, not the
+// ESP32. Across a warm reset it stays wherever it was, which is why this was
+// never needed until the board started genuinely powering off: after a PM1
+// power-off the rail comes back LOW, and the first morning wake drew a
+// complete page into a framebuffer with no panel behind it. The screen simply
+// kept yesterday's image while every log line said success.
+//
+// M5Stack's own firmware does exactly this on every boot (hal.cpp:184).
+void wake_panel_power_on();
+
 // True if this boot was the PM1 powering us back on from its own RTC wake.
 // Callable only AFTER M5.begin(), which brings up the I2C the PM1 sits on.
 bool wake_was_pm1_rtc();
