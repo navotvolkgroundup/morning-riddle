@@ -72,6 +72,33 @@ bool g_bus_ready = false;
 
 bool sd_mount()
 {
+    // THE CARD SHARES THE PANEL'S BUS. DO NOT MOUNT IT.
+    //
+    // From M5Stack's PaperColor pinout:
+    //   e-paper   G15 SPI_CLK, G13 SPI_MOSI, G44 CS, G43 DC, G11 BUSY, G12 RST
+    //   microSD   G15 SPI_CLK, G13 SPI_MOSI, G14 MISO, G47 CS
+    //
+    // CLK and MOSI are the same wires. Mounting the card reconfigures them --
+    // the SDMMC fallback hands G15/G13 to a different peripheral entirely --
+    // and the panel's bus does not survive it. Measured, three pushes in one
+    // boot of the identical image:
+    //
+    //   before sd_mount()   17136 ms, ink moves
+    //   after  sd_mount()    1991 ms, nothing
+    //   after  WiFi          1993 ms, nothing   (WiFi is innocent)
+    //
+    // After this the display renders, reports a refresh, and changes nothing,
+    // which is indistinguishable from a dead panel and was chased as one for a
+    // day and a half.
+    //
+    // Nothing needs the card any more: kids.json and schedule.json go through
+    // the setup page into NVS, and this board's reader has never completed a
+    // data-block transfer anyway. The module stays for reference; if it is ever
+    // revived it MUST re-initialise the panel afterwards, or run before
+    // M5.begin().
+    ESP_LOGW(TAG, "not mounting: the card shares G15/G13 with the panel");
+    return false;
+
     if (g_card) return true;
 
     if (!g_bus_ready) {

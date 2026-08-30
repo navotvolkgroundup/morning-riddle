@@ -79,15 +79,6 @@ extern "C" void app_main(void)
     // like a dead display, and cost a day and a half of chasing power rails.
     M5.Display.setEpdMode(m5gfx::epd_mode_t::epd_quality);
 
-    // TEMPORARY: the same push, early. The identical image pushed in 17134ms
-    // here (as a throwaway sprite) and 1988ms later in the boot, after the SD
-    // retries, WiFi and the fetch. Two timings in one boot say what changes.
-    {
-        ui_canvas().fillScreen(TFT_WHITE);
-        ui_canvas().fillRect(0, 0, ui_canvas().width(), ui_canvas().height() / 3, TFT_BLACK);
-        ESP_LOGW(TAG, "EARLY PUSH: %lld ms", (long long)ui_canvas_push());
-    }
-
     // READ-ONLY PROBE OF THE PANEL'S POWER PIN. No writes, no new I2C driver --
     // M5Unified's own bus, which is already up.
     //
@@ -232,6 +223,7 @@ extern "C" void app_main(void)
     static schedule_t sched;
     sdconfig_load(&kids, &sched);
 
+
     static weather_t wx;
     wx_load(&wx);               // cache only; the fetch is morning-only
 
@@ -329,6 +321,7 @@ extern "C" void app_main(void)
             net_stop();
         }
     }
+
 
     // CLOCK FIRST, before anything asks what day it is. riddle_local_day()
     // keys the whole state machine, so a page recorded against an unsynced
