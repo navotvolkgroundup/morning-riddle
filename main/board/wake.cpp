@@ -258,11 +258,28 @@ void wake_panel_power_on()
         ESP_LOGE(TAG, "no PM1: cannot power the panel, the screen will not update");
         return;
     }
+
+    // MEASURE FIRST. Three fixes have been written for "EPD_EN is low after a
+    // power-off" without anyone reading the pin. These four registers are the
+    // PM1's GPIO control, bit 0 being EPD_EN:
+    //   0x16 function (0 = plain GPIO)   0x10 direction (1 = output)
+    //   0x13 drive    (0 = push-pull)    0x11 output level
+    auto reg = [](uint8_t r) {
+        return (int)M5.In_I2C.readRegister8(0x6E, r, 100000);
+    };
+    ESP_LOGW(TAG, "EPD_EN before: func=%d dir=%d drive=%d level=%d "
+                  "(raw 0x16=%02x 0x10=%02x 0x13=%02x 0x11=%02x)",
+             reg(0x16) & 1, reg(0x10) & 1, reg(0x13) & 1, reg(0x11) & 1,
+             reg(0x16), reg(0x10), reg(0x13), reg(0x11));
+
     const bool ok =
         g_pm1.gpioSetFunc(kPm1EpdEn, M5PM1_GPIO_FUNC_GPIO) == M5PM1_OK &&
         g_pm1.gpioSetMode(kPm1EpdEn, M5PM1_GPIO_MODE_OUTPUT) == M5PM1_OK &&
         g_pm1.gpioSetOutput(kPm1EpdEn, 1) == M5PM1_OK;
-    ESP_LOGW(TAG, "panel rail (PM1 GPIO0 / EPD_EN) %s", ok ? "on" : "WOULD NOT TURN ON");
+
+    ESP_LOGW(TAG, "EPD_EN after:  func=%d dir=%d drive=%d level=%d  (writes %s)",
+             reg(0x16) & 1, reg(0x10) & 1, reg(0x13) & 1, reg(0x11) & 1,
+             ok ? "ok" : "FAILED");
 }
 
 bool wake_was_pm1_rtc()
