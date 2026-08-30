@@ -82,23 +82,12 @@ extern "C" void app_main(void)
     // assert it. If a PM1 power-off really does drop it, the fix is to set the
     // LEVEL before the DIRECTION -- not to reinstate this call as it stands.
 
-    // BISECT: the PM1 is off the boot path entirely.
-    //
-    // wake_was_pm1_rtc() calls pm1.begin(), and that is the only thing added
-    // between the last page anyone actually SAW drawn and this firmware never
-    // drawing again. M5Stack's own hal.cpp re-asserts EPD_EN high on the very
-    // next lines after pm1.begin() -- which is what you would write if begin()
-    // reset the GPIO config and dropped the panel's rail.
-    //
-    // If that is right, the rail falls AFTER M5.begin() has initialised the
-    // panel, which is why setting it high again afterwards fixed nothing: the
-    // controller had already lost its configuration.
-    //
-    // Cost of this bisect: an RTC wake is indistinguishable from a cold boot,
-    // so the reveal check keys off the wrong cause. Both still draw, so the
-    // only visible effect is the 13:00 wake showing the question again rather
-    // than the answer.
-    // if (why == wake_cause::cold && wake_was_pm1_rtc()) why = wake_cause::alarm;
+    // A PM1 power-on is a genuine cold boot to the ESP32, so wake_why() cannot
+    // see it. Ask the PM1 and promote the cause when the mask carries EXT_WAKE.
+    if (why == wake_cause::cold && wake_was_pm1_rtc()) {
+        ESP_LOGW(TAG, "PM1 says this was an RTC wake, not a cold boot");
+        why = wake_cause::alarm;
+    }
 
     // THE BUTTON SHORT PATH, AND IT RUNS FIRST.
     //
