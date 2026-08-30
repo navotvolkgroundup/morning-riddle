@@ -97,6 +97,16 @@ bool wake_button_held();
 //
 // Holding a button at boot also refuses, as a deliberate escape hatch for a
 // battery-powered board that would otherwise be asleep whenever you reach it.
+// NOT USED. Raw I2C to the PM1 before M5.begin() hung the board solid: no
+// serial output at all, and esptool could not connect even with a full reset
+// sequence -- it took a physical power cycle to recover. Installing a driver on
+// I2C_NUM_0 over G3/G2 and handing it back evidently does not survive
+// M5.begin() claiming the same bus.
+//
+// Kept, uncalled, so the next person does not spend an afternoon rediscovering
+// that it bricks the board until unplugged.
+void wake_panel_power_on_early();
+
 // Powers the e-paper panel's rail on. MUST run after M5.begin() and BEFORE
 // anything draws.
 //

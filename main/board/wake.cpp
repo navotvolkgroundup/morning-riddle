@@ -3,6 +3,7 @@
 #include <M5Unified.h>
 
 #include "driver/gpio.h"
+#include "driver/i2c.h"
 #include "esp_log.h"
 #include "driver/usb_serial_jtag.h"
 #include "hal/usb_serial_jtag_ll.h"
@@ -203,6 +204,53 @@ bool pm1_ready()
     return state == 1;
 }
 }  // namespace
+
+namespace {
+// PM1 GPIO control registers, as used by M5Unified's own Power init:
+//   0x16 bit n = 0  pin is a plain GPIO (not a special function)
+//   0x10 bit n = 1  output
+//   0x13 bit n = 0  push-pull
+//   0x11 bit n      output level
+constexpr uint8_t kPm1Addr    = 0x6E;
+constexpr uint8_t kEpdEnBit   = 1 << 0;      // PM1 GPIO0 = EPD_EN
+
+bool pm1_raw_rmw(uint8_t reg, uint8_t bit, bool set)
+{
+    uint8_t v = 0;
+    if (i2c_master_write_read_device(I2C_NUM_0, kPm1Addr, &reg, 1, &v, 1,
+                                     pdMS_TO_TICKS(100)) != ESP_OK)
+        return false;
+    const uint8_t nv = set ? (uint8_t)(v | bit) : (uint8_t)(v & ~bit);
+    if (nv == v) return true;
+    const uint8_t buf[2] = { reg, nv };
+    return i2c_master_write_to_device(I2C_NUM_0, kPm1Addr, buf, sizeof buf,
+                                      pdMS_TO_TICKS(100)) == ESP_OK;
+}
+}  // namespace
+
+void wake_panel_power_on_early()
+{
+    i2c_config_t c = {};
+    c.mode             = I2C_MODE_MASTER;
+    c.sda_io_num       = 3;                  // SYS_SDA
+    c.scl_io_num       = 2;                  // SYS_SCL
+    c.sda_pullup_en    = GPIO_PULLUP_ENABLE;
+    c.scl_pullup_en    = GPIO_PULLUP_ENABLE;
+    c.master.clk_speed = 100000;
+
+    if (i2c_param_config(I2C_NUM_0, &c) != ESP_OK) return;
+    if (i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0) != ESP_OK) return;
+
+    const bool ok = pm1_raw_rmw(0x16, kEpdEnBit, false)   // plain GPIO
+                 && pm1_raw_rmw(0x10, kEpdEnBit, true)    // output
+                 && pm1_raw_rmw(0x13, kEpdEnBit, false)   // push-pull
+                 && pm1_raw_rmw(0x11, kEpdEnBit, true);   // high
+    ESP_LOGW(TAG, "panel rail before M5.begin: %s", ok ? "ON" : "FAILED");
+
+    // Hand the bus back so M5.begin() can set up M5.In_I2C on the same pins.
+    i2c_driver_delete(I2C_NUM_0);
+    vTaskDelay(pdMS_TO_TICKS(20));           // let the rail settle before init
+}
 
 void wake_panel_power_on()
 {
