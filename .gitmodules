@@ -1,0 +1,14 @@
+# The three M5Stack driver libraries are pinned as submodules rather than
+# vendored, so this repo tracks exact upstream commits without copying them.
+#
+# Clone with:   git clone --recursive <url>
+# Existing:     git submodule update --init
+[submodule "components/M5GFX"]
+	path = components/M5GFX
+	url = https://github.com/m5stack/M5GFX
+[submodule "components/M5Unified"]
+	path = components/M5Unified
+	url = https://github.com/m5stack/M5Unified
+[submodule "components/M5PM1"]
+	path = components/M5PM1
+	url = https://github.com/m5stack/M5PM1
