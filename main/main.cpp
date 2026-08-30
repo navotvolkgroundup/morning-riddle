@@ -56,11 +56,43 @@ extern "C" void app_main(void)
     // The page fills the screen itself, so M5's own clear is a wasted
     // full-panel waveform. This one line is what took M5.begin() from 52.7s to
     // 464ms -- the clear was almost all of it.
+    // Back to false, which is what the last build that visibly drew a page
+    // used. true was set today to re-initialise the panel after UIFlow had run
+    // on this board; that init has since happened several times, and with it
+    // still set the page draws and pushes (1964ms / 1909ms) onto a blank
+    // screen. The 52s it costs on every wake is not free, so it goes back.
     cfg.clear_display = false;
     const int64_t t_begin = esp_timer_get_time();
     M5.begin(cfg);
     ESP_LOGW(TAG, "M5.begin took %lld ms (clear_display=false)",
              (long long)((esp_timer_get_time() - t_begin) / 1000));
+
+    // THE UPDATE MODE, SET EXPLICITLY. M5Stack's own firmware does this on the
+    // line after M5.begin() (hal.cpp:173) and we never did.
+    //
+    // The tell was the refresh time. A full Spectra 6 waveform is 15-30s --
+    // M5.begin()'s own init takes 52s on this panel -- and our pushes were
+    // finishing in 1909ms, every time, regardless of how much of the screen
+    // changed. That is a FAST mode, which on a six-colour panel moves almost no
+    // ink: the panel blinks and the image does not change. It looked exactly
+    // like a dead display, and cost a day and a half of chasing power rails.
+    M5.Display.setEpdMode(m5gfx::epd_mode_t::epd_quality);
+
+    // READ-ONLY PROBE OF THE PANEL'S POWER PIN. No writes, no new I2C driver --
+    // M5Unified's own bus, which is already up.
+    //
+    // EPD_EN is PM1 GPIO0. Six fixes have been written for "the rail is low"
+    // without anyone ever reading it. These are the PM1's GPIO control
+    // registers, bit 0 being EPD_EN:
+    //   0x16 function (0 = plain GPIO)   0x10 direction (1 = output)
+    //   0x13 drive    (0 = push-pull)    0x11 output level
+    {
+        auto r = [](uint8_t a) { return (unsigned)M5.In_I2C.readRegister8(0x6E, a, 100000); };
+        const unsigned f = r(0x16), d = r(0x10), dr = r(0x13), l = r(0x11);
+        ESP_LOGW(TAG, "EPD_EN: func=%u dir=%u drive=%u LEVEL=%u   "
+                      "(0x16=%02x 0x10=%02x 0x13=%02x 0x11=%02x)",
+                 f & 1, d & 1, dr & 1, l & 1, f, d, dr, l);
+    }
 
     // A PM1 POWER-ON LOOKS LIKE A COLD BOOT TO THE ESP32, because it is one --
     // the chip was unpowered. Only the PM1 knows an RTC edge brought us back,
@@ -82,12 +114,18 @@ extern "C" void app_main(void)
     // assert it. If a PM1 power-off really does drop it, the fix is to set the
     // LEVEL before the DIRECTION -- not to reinstate this call as it stands.
 
-    // A PM1 power-on is a genuine cold boot to the ESP32, so wake_why() cannot
-    // see it. Ask the PM1 and promote the cause when the mask carries EXT_WAKE.
-    if (why == wake_cause::cold && wake_was_pm1_rtc()) {
-        ESP_LOGW(TAG, "PM1 says this was an RTC wake, not a cold boot");
-        why = wake_cause::alarm;
-    }
+    // THE PM1 IS DELIBERATELY NOT TOUCHED ON THE DRAW PATH.
+    //
+    // This used to call wake_was_pm1_rtc() here to tell an RTC wake from a cold
+    // boot. That calls pm1.begin(), and M5Stack's own hal.cpp re-asserts
+    // EPD_EN high on the lines immediately after ITS pm1.begin() -- which is
+    // what you write if begin() resets the GPIO config and drops the panel's
+    // rail. The symptom matches exactly: M5.begin()'s init visibly clears the
+    // screen, and every draw after it lands nowhere.
+    //
+    // It was never needed anyway. The wake cause was only used to choose
+    // morning or reveal, and the clock already answers that -- see in.reason
+    // below. The PM1 is still used at sleep time, when nothing more will draw.
 
     // THE BUTTON SHORT PATH, AND IT RUNS FIRST.
     //
@@ -232,7 +270,12 @@ extern "C" void app_main(void)
         M5.Display.drawString("then open", 16, 200);
         M5.Display.drawString("192.168.4.1", 16, 240);
         M5.Display.endWrite();
-        M5.Display.display();
+        // Explicit full-panel rect, same as the daily page. The no-argument
+        // display() refreshes only what Panel_EPD's dirty tracking recorded,
+        // and through this draw path that range comes back EMPTY -- nothing is
+        // queued and the screen never changes. That is why the setup
+        // instructions never appeared, on a panel that was working fine.
+        M5.Display.display(0, 0, M5.Display.width(), M5.Display.height());
         M5.Display.waitDisplay();       // queued, not synchronous
 
         // kids and sched are updated in place, so the page below draws what
@@ -261,7 +304,7 @@ extern "C" void app_main(void)
             M5.Display.drawString("then open", 16, 200);
             M5.Display.drawString("192.168.4.1", 16, 240);
             M5.Display.endWrite();
-            M5.Display.display();
+            M5.Display.display(0, 0, M5.Display.width(), M5.Display.height());
             M5.Display.waitDisplay();   // queued, not synchronous
 
             if (portal_run(&kids, &sched)) {
@@ -340,8 +383,11 @@ extern "C" void app_main(void)
     // An alarm wake knows which slot it is from the clock; anything else --
     // a cold boot, a reflash -- is treated as a morning, which is idempotent
     // within a day thanks to that guard.
-    in.reason  = (why == wake_cause::alarm && lt.tm_hour >= RIDDLE_REVEAL_HOUR)
-                     ? WAKE_AFTERNOON : WAKE_MORNING;
+    // THE CLOCK DECIDES, not the wake cause. Asking the PM1 which alarm woke
+    // us cost the panel (see above), and it was never the better source: a
+    // board booted by hand at 14:00 should show the answer, and one woken by
+    // the RTC at 06:30 should show the riddle. The hour says both.
+    in.reason  = (lt.tm_hour >= RIDDLE_REVEAL_HOUR) ? WAKE_AFTERNOON : WAKE_MORNING;
     in.guess   = RIDDLE_NO_GUESS;
     in.batch_n = (uint16_t)s_batch.count;      // the REAL count, not a stand-in
     in.today   = riddle_local_day(now_t, RIDDLE_TZ);
