@@ -1,5 +1,7 @@
 #include "hebrew.hpp"
 
+#include "gfx_target.hpp"
+
 #include <cstring>
 
 // Blob layout, produced by gen_hebrew_fon.py (New Peninim MT, 40pt):
@@ -27,7 +29,7 @@ void draw_glyph(int x, int y, uint32_t cp, uint32_t colour)
             if (byte == 0xFF) continue;                 // all background
             for (int bit = 0; bit < 8; bit++) {
                 if (!((byte >> (7 - bit)) & 1))         // 0 = ink
-                    M5.Display.drawPixel(x + b * 8 + bit, y + row, colour);
+                    ui_canvas().drawPixel(x + b * 8 + bit, y + row, colour);
             }
         }
     }
@@ -85,9 +87,9 @@ void draw_line_rtl(const he_metrics_t *m, int right_x, int y, const char *s,
             std::memcpy(buf, run, cpy);
             buf[cpy] = '\0';
             // Latin sits lower in the taller Hebrew cell so baselines align.
-            M5.Display.setTextColor(colour);
-            M5.Display.setTextSize(2);
-            M5.Display.drawString(buf, x, y + (HE_H - 28) / 2 + 4);
+            ui_canvas().setTextColor(colour);
+            ui_canvas().setTextSize(2);
+            ui_canvas().drawString(buf, x, y + (HE_H - 28) / 2 + 4);
             p += runbytes;
         } else {
             p += n;                                     // undrawable: skip

@@ -1,6 +1,8 @@
 #include "page_daily.hpp"
 
 #include <M5Unified.h>
+
+#include "gfx_target.hpp"
 #include <cstdio>
 #include <cstdlib>
 
@@ -29,19 +31,19 @@ const he_metrics_t *metrics()
 
 void draw_header(const page_daily_content &c)
 {
-    M5.Display.setTextColor(TFT_BLACK);
-    M5.Display.setTextSize(2);
-    if (c.date) M5.Display.drawString(c.date, DL_MARGIN_X, DL_HDR_Y);
+    ui_canvas().setTextColor(TFT_BLACK);
+    ui_canvas().setTextSize(2);
+    if (c.date) ui_canvas().drawString(c.date, DL_MARGIN_X, DL_HDR_Y);
 
     // The streak is address, not information -- the page telling its reader it
     // has been paying attention. Below two days there is nothing to say.
     if (c.streak > 1) {
         char s[24];
         std::snprintf(s, sizeof s, "%u days", (unsigned)c.streak);
-        M5.Display.drawString(s, DL_CANVAS_W - DL_MARGIN_X - 90, DL_HDR_Y);
+        ui_canvas().drawString(s, DL_CANVAS_W - DL_MARGIN_X - 90, DL_HDR_Y);
     }
 
-    M5.Display.drawFastHLine(DL_MARGIN_X, DL_HDR_RULE_Y,
+    ui_canvas().drawFastHLine(DL_MARGIN_X, DL_HDR_RULE_Y,
                              DL_CANVAS_W - 2 * DL_MARGIN_X, TFT_BLACK);
 }
 
@@ -56,16 +58,16 @@ void draw_weather(const page_daily_content &c, int y)
         std::snprintf(line + n, sizeof line - n, "   %d/%d",
                       c.wx->hi_x10 / 10, c.wx->lo_x10 / 10);
 
-    M5.Display.setTextColor(TFT_BLACK);
-    M5.Display.setTextSize(2);
-    M5.Display.drawString(line, DL_MARGIN_X + DL_BAND_PAD, y + 8);
+    ui_canvas().setTextColor(TFT_BLACK);
+    ui_canvas().setTextSize(2);
+    ui_canvas().drawString(line, DL_MARGIN_X + DL_BAND_PAD, y + 8);
 
     // Say so when it is old, in red. A confidently wrong temperature is worse
     // than an obviously stale one, and the fetch fails silently by design.
     if (weather_is_stale(c.wx, c.now_utc)) {
-        M5.Display.setTextColor(TFT_RED);
-        M5.Display.drawString("old", DL_CANVAS_W - DL_MARGIN_X - 50, y + 8);
-        M5.Display.setTextColor(TFT_BLACK);
+        ui_canvas().setTextColor(TFT_RED);
+        ui_canvas().drawString("old", DL_CANVAS_W - DL_MARGIN_X - 50, y + 8);
+        ui_canvas().setTextColor(TFT_BLACK);
     }
 }
 
@@ -85,13 +87,13 @@ void page_daily_draw(const page_daily_content &c)
     daily_layout_t L;
     daily_layout(&f, &L);
 
-    M5.Display.startWrite();
-    M5.Display.fillScreen(TFT_WHITE);
+    ui_canvas().startWrite();
+    ui_canvas().fillScreen(TFT_WHITE);
 
     draw_header(c);
 
     if (L.band_h > 0)
-        M5.Display.drawRect(DL_MARGIN_X, L.band_y,
+        ui_canvas().drawRect(DL_MARGIN_X, L.band_y,
                             DL_CANVAS_W - 2 * DL_MARGIN_X, L.band_h, TFT_BLACK);
 
     if (L.schedule_y != DL_ABSENT)
@@ -102,7 +104,7 @@ void page_daily_draw(const page_daily_content &c)
 
     if (L.birthday_y != DL_ABSENT) {
         int who = kids_birthday_on(c.kids, c.month, c.day);
-        M5.Display.drawRect(DL_MARGIN_X, L.birthday_y,
+        ui_canvas().drawRect(DL_MARGIN_X, L.birthday_y,
                             DL_CANVAS_W - 2 * DL_MARGIN_X,
                             2 * HE_H + 16, TFT_RED);
         // Red, and the only place colour carries meaning rather than decorating.
@@ -135,7 +137,7 @@ void page_daily_draw(const page_daily_content &c)
 
     if (c.show_answer && c.answer) {
         y += 20;
-        M5.Display.drawFastHLine(DL_MARGIN_X, y, DL_CANVAS_W - 2 * DL_MARGIN_X,
+        ui_canvas().drawFastHLine(DL_MARGIN_X, y, DL_CANVAS_W - 2 * DL_MARGIN_X,
                                  TFT_BLACK);
         y += 16;
         // In red, and larger than the question was. This is the payoff the
@@ -145,14 +147,14 @@ void page_daily_draw(const page_daily_content &c)
         y += 12;
         for (int i = 0; i < 3; i++) {
             if (y + kChoiceH > DL_BODY_BOTTOM) break;
-            M5.Display.setTextColor(TFT_BLACK);
-            M5.Display.setTextSize(2);
+            ui_canvas().setTextColor(TFT_BLACK);
+            ui_canvas().setTextSize(2);
 #if PD_BUTTONS_ON_LEFT_EDGE
-            M5.Display.drawString(kMarks[i], DL_MARGIN_X + 4, y + 12);
+            ui_canvas().drawString(kMarks[i], DL_MARGIN_X + 4, y + 12);
             he::draw_line_rtl(m, DL_CANVAS_W - DL_MARGIN_X - 8, y,
                               c.choices[i] ? c.choices[i] : "");
 #else
-            M5.Display.drawString(kMarks[i], DL_CANVAS_W - DL_MARGIN_X - 20, y + 12);
+            ui_canvas().drawString(kMarks[i], DL_CANVAS_W - DL_MARGIN_X - 20, y + 12);
             he::draw_line_rtl(m, DL_CANVAS_W - DL_MARGIN_X - 34, y,
                               c.choices[i] ? c.choices[i] : "");
 #endif
@@ -160,5 +162,5 @@ void page_daily_draw(const page_daily_content &c)
         }
     }
 
-    M5.Display.endWrite();
+    ui_canvas().endWrite();
 }

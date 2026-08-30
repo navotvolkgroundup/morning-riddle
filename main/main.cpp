@@ -20,6 +20,7 @@ extern "C" {
 }
 
 #include "hebrew.hpp"
+#include "gfx_target.hpp"
 #include "page_daily.hpp"
 #include "wake.hpp"
 #include "feedback.hpp"
@@ -77,6 +78,15 @@ extern "C" void app_main(void)
     // ink: the panel blinks and the image does not change. It looked exactly
     // like a dead display, and cost a day and a half of chasing power rails.
     M5.Display.setEpdMode(m5gfx::epd_mode_t::epd_quality);
+
+    // TEMPORARY: the same push, early. The identical image pushed in 17134ms
+    // here (as a throwaway sprite) and 1988ms later in the boot, after the SD
+    // retries, WiFi and the fetch. Two timings in one boot say what changes.
+    {
+        ui_canvas().fillScreen(TFT_WHITE);
+        ui_canvas().fillRect(0, 0, ui_canvas().width(), ui_canvas().height() / 3, TFT_BLACK);
+        ESP_LOGW(TAG, "EARLY PUSH: %lld ms", (long long)ui_canvas_push());
+    }
 
     // READ-ONLY PROBE OF THE PANEL'S POWER PIN. No writes, no new I2C driver --
     // M5Unified's own bus, which is already up.
@@ -258,25 +268,24 @@ extern "C" void app_main(void)
     }
     if (want_setup) {
         ESP_LOGW(TAG, "button pressed during the setup window -- opening setup");
-        M5.Display.startWrite();
-        M5.Display.fillScreen(TFT_WHITE);
-        M5.Display.setTextColor(TFT_BLACK);
-        M5.Display.setTextSize(2);
-        M5.Display.drawString("Setup", 16, 40);
-        M5.Display.drawString("Join this network:", 16, 100);
-        M5.Display.setTextColor(TFT_RED);
-        M5.Display.drawString(PORTAL_AP_SSID, 16, 140);
-        M5.Display.setTextColor(TFT_BLACK);
-        M5.Display.drawString("then open", 16, 200);
-        M5.Display.drawString("192.168.4.1", 16, 240);
-        M5.Display.endWrite();
+        ui_canvas().startWrite();
+        ui_canvas().fillScreen(TFT_WHITE);
+        ui_canvas().setTextColor(TFT_BLACK);
+        ui_canvas().setTextSize(2);
+        ui_canvas().drawString("Setup", 16, 40);
+        ui_canvas().drawString("Join this network:", 16, 100);
+        ui_canvas().setTextColor(TFT_RED);
+        ui_canvas().drawString(PORTAL_AP_SSID, 16, 140);
+        ui_canvas().setTextColor(TFT_BLACK);
+        ui_canvas().drawString("then open", 16, 200);
+        ui_canvas().drawString("192.168.4.1", 16, 240);
+        ui_canvas().endWrite();
         // Explicit full-panel rect, same as the daily page. The no-argument
         // display() refreshes only what Panel_EPD's dirty tracking recorded,
         // and through this draw path that range comes back EMPTY -- nothing is
         // queued and the screen never changes. That is why the setup
         // instructions never appeared, on a panel that was working fine.
-        M5.Display.display(0, 0, M5.Display.width(), M5.Display.height());
-        M5.Display.waitDisplay();       // queued, not synchronous
+        ui_canvas_push();       // queued, not synchronous
 
         // kids and sched are updated in place, so the page below draws what
         // was just typed rather than what was loaded a moment ago.
@@ -292,20 +301,19 @@ extern "C" void app_main(void)
             // No network. Put the setup instructions on the panel -- a board
             // that silently fails to connect is indistinguishable from one
             // that is simply slow, and there is nowhere else to say it.
-            M5.Display.startWrite();
-            M5.Display.fillScreen(TFT_WHITE);
-            M5.Display.setTextColor(TFT_BLACK);
-            M5.Display.setTextSize(2);
-            M5.Display.drawString("WiFi setup", 16, 40);
-            M5.Display.drawString("Join this network:", 16, 100);
-            M5.Display.setTextColor(TFT_RED);
-            M5.Display.drawString(PORTAL_AP_SSID, 16, 140);
-            M5.Display.setTextColor(TFT_BLACK);
-            M5.Display.drawString("then open", 16, 200);
-            M5.Display.drawString("192.168.4.1", 16, 240);
-            M5.Display.endWrite();
-            M5.Display.display(0, 0, M5.Display.width(), M5.Display.height());
-            M5.Display.waitDisplay();   // queued, not synchronous
+            ui_canvas().startWrite();
+            ui_canvas().fillScreen(TFT_WHITE);
+            ui_canvas().setTextColor(TFT_BLACK);
+            ui_canvas().setTextSize(2);
+            ui_canvas().drawString("WiFi setup", 16, 40);
+            ui_canvas().drawString("Join this network:", 16, 100);
+            ui_canvas().setTextColor(TFT_RED);
+            ui_canvas().drawString(PORTAL_AP_SSID, 16, 140);
+            ui_canvas().setTextColor(TFT_BLACK);
+            ui_canvas().drawString("then open", 16, 200);
+            ui_canvas().drawString("192.168.4.1", 16, 240);
+            ui_canvas().endWrite();
+            ui_canvas_push();   // queued, not synchronous
 
             if (portal_run(&kids, &sched)) {
                 // Straight back round: the credentials are in NVS now.
@@ -460,10 +468,11 @@ extern "C" void app_main(void)
     // arguments is display(0,0,0,0), which refreshes only what Panel_EPD's own
     // dirty tracking recorded. This page repaints every pixel anyway, so
     // per-region tracking buys nothing and one less thing can go wrong.
-    const int64_t t0 = esp_timer_get_time();
-    M5.Display.display(0, 0, M5.Display.width(), M5.Display.height());
-    M5.Display.waitDisplay();
-    const int64_t ms = (esp_timer_get_time() - t0) / 1000;
+    // PUSH THE CANVAS. Measured on this panel, same boot:
+    //   M5.Display.display(...)  1909 ms, no ink moved
+    //   Canvas->pushSprite(0,0) 17134 ms, the page appears
+    // The second is a real Spectra 6 waveform; the first never drove anything.
+    const int64_t ms = ui_canvas_push();
 
     ESP_LOGI(TAG, "draw %lld ms, panel refresh %lld ms",
              (long long)push_ms, (long long)ms);
