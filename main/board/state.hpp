@@ -13,7 +13,9 @@
 #define BOARD_STATE_HPP
 
 extern "C" {
+#include "kids.h"
 #include "riddle_decide.h"
+#include "schedule.h"
 }
 
 // Initialises NVS, erasing and recreating it if it cannot be mounted.
@@ -33,5 +35,17 @@ bool state_load(riddle_nvs_t *st);
 // treat as serious: an unsaved guess is a child pressing a button and the
 // board forgetting by 13:00.
 bool state_save(const riddle_nvs_t *st);
+
+// A fingerprint of the kids and the timetable, and what was last DRAWN.
+//
+// The page is skipped when the state machine says the panel is already correct
+// (ACT_NONE), which is right for the riddle and wrong for config: editing a
+// child's name in the setup page changed nothing visible until the next
+// scheduled wake, because the riddle had not changed. That reads as a setup
+// page that does not work. Comparing the current fingerprint against the one
+// stored at the last successful draw buys exactly one redraw per edit.
+uint32_t state_config_fingerprint(const kids_t *k, const schedule_t *s);
+uint32_t state_drawn_config();
+void state_set_drawn_config(uint32_t fp);
 
 #endif // BOARD_STATE_HPP

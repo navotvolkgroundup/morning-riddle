@@ -433,14 +433,25 @@ extern "C" void app_main(void)
         c.has_choices = false;
     }
 
-    // ACT_NONE means what is on the panel is already correct. Skipping the
-    // draw saves a 17-second full refresh and the power that goes with it --
-    // on a panel this slow, not redrawing is a feature.
-    if (act == ACT_NONE) {
+    // ACT_NONE means the RIDDLE on the panel is already correct. Skipping the
+    // draw saves a 17-second full refresh and the power with it -- on a panel
+    // this slow, not redrawing is a feature.
+    //
+    // But the riddle is not the only thing on the page. The names and the
+    // timetable come from the setup page and the state machine knows nothing
+    // about them, so a config edit used to change nothing until the next
+    // scheduled wake. A changed fingerprint forces one redraw of its own.
+    const uint32_t cfg_fp = state_config_fingerprint(&kids, &sched);
+    const bool cfg_changed = (cfg_fp != state_drawn_config());
+    const bool will_draw   = (act != ACT_NONE) || cfg_changed;
+
+    if (cfg_changed && act == ACT_NONE)
+        ESP_LOGW(TAG, "riddle unchanged, kids or timetable did -- redrawing");
+    else if (!will_draw)
         ESP_LOGI(TAG, "nothing to redraw; leaving the panel alone");
-    }
+
     const int64_t t_draw = esp_timer_get_time();
-    if (act != ACT_NONE) page_daily_draw(c);
+    if (will_draw) page_daily_draw(c);
     const int64_t push_ms = (esp_timer_get_time() - t_draw) / 1000;
 
     // display() QUEUES; waitDisplay() IS THE REFRESH.
@@ -469,6 +480,11 @@ extern "C" void app_main(void)
 
     ESP_LOGI(TAG, "draw %lld ms, panel refresh %lld ms",
              (long long)push_ms, (long long)ms);
+
+    // Record the config only once it is actually ON the panel. Storing it
+    // before the push would mean a refresh interrupted by a flat battery is
+    // remembered as drawn, and the change would never appear.
+    if (will_draw && ms >= 0) state_set_drawn_config(cfg_fp);
 
     // The alarm. Arming is verified by readback inside wake_arm_next -- a
     // board that thinks it is armed and is not never wakes again and looks

@@ -36,6 +36,38 @@ bool state_nvs_init()
     return ok;
 }
 
+uint32_t state_config_fingerprint(const kids_t *k, const schedule_t *s)
+{
+    // FNV-1a over both blobs. Not a checksum against corruption -- NVS already
+    // does that -- just "is this the same config I drew last time".
+    uint32_t h = 2166136261u;
+    const uint8_t *b;
+    if (k) { b = (const uint8_t *)k; for (size_t i = 0; i < sizeof *k; i++) { h ^= b[i]; h *= 16777619u; } }
+    if (s) { b = (const uint8_t *)s; for (size_t i = 0; i < sizeof *s; i++) { h ^= b[i]; h *= 16777619u; } }
+    return h;
+}
+
+uint32_t state_drawn_config()
+{
+    if (!state_nvs_init()) return 0;
+    nvs_handle_t h;
+    if (nvs_open(kNamespace, NVS_READONLY, &h) != ESP_OK) return 0;
+    uint32_t fp = 0;
+    nvs_get_u32(h, "cfgdrawn", &fp);
+    nvs_close(h);
+    return fp;
+}
+
+void state_set_drawn_config(uint32_t fp)
+{
+    if (!state_nvs_init()) return;
+    nvs_handle_t h;
+    if (nvs_open(kNamespace, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_u32(h, "cfgdrawn", fp);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
 bool state_load(riddle_nvs_t *st)
 {
     if (!st) return false;
