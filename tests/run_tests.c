@@ -14,6 +14,7 @@
 #include "riddle_decide.h"
 #include "wake_log.h"
 #include "kids.h"
+#include "masthead.h"
 #include "strip.h"
 #include "weather.h"
 #include "schedule.h"
@@ -144,10 +145,13 @@ static int test_state(void)
     CHECK(riddle_decide(&g, &st) == ACT_SHOW_RESULT);
     CHECK(st.state == RS_GUESSED && st.guess == 2 && st.streak == 1);
 
-    // Extra presses are ignored -- one physical press emits three button
-    // codes, which is the bug that shipped in page_news earlier today.
-    CHECK(riddle_decide(&g, &st) == ACT_NONE);
+    // Extra presses on today's page are ACKNOWLEDGED, not refused -- one
+    // physical press emits three button codes (the bug that shipped in
+    // page_news), and, since the rotation, three children who are not named
+    // today will press a board that used to buzz at them.
+    CHECK(riddle_decide(&g, &st) == ACT_ACK_ONLY);
     CHECK(st.streak == 1);
+    CHECK(st.state == RS_GUESSED && st.guess == 2);   // and it changes nothing
 
     // 13:00 reveals, knowing a guess was made.
     riddle_input_t pm = IN(WAKE_AFTERNOON, 100, RIDDLE_NO_GUESS, 30);
@@ -155,8 +159,10 @@ static int test_state(void)
     CHECK(st.state == RS_ANSWER_SHOWN);
     CHECK(riddle_decide(&pm, &st) == ACT_NONE);        // idempotent
 
-    // A guess arriving after the reveal changes nothing.
-    CHECK(riddle_decide(&g, &st) == ACT_NONE);
+    // A press arriving after the reveal changes nothing, and is acknowledged
+    // rather than refused: there is nothing left to guess, but the child did
+    // not do anything wrong.
+    CHECK(riddle_decide(&g, &st) == ACT_ACK_ONLY);
     CHECK(st.guess == 2);
 
     // Next day: advances, and the streak survives because yesterday counted.
@@ -260,6 +266,65 @@ static wake_rec_t REC(uint32_t when, uint8_t outcome, uint8_t flags)
     memset(&r, 0, sizeof r);
     r.when = when; r.outcome = outcome; r.flags = flags; r.battery = -1;
     return r;
+}
+
+static int test_siblings(void)
+{
+    // FOUR CHILDREN, ONE PRESS A DAY. The page names one of them; the other
+    // three will press it anyway. This is the whole cost of the rotation, and
+    // the assertion set that keeps it from being a telling-off.
+    riddle_nvs_t st;
+    memset(&st, 0, sizeof st);
+    st.state = RS_IDLE; st.guess = RIDDLE_NO_GUESS;
+
+    riddle_input_t m = IN(WAKE_MORNING, 400, RIDDLE_NO_GUESS, 30);
+    m.whose_turn = 1; m.kids_n = 4;
+    CHECK(riddle_decide(&m, &st) == ACT_SHOW_QUESTION);
+
+    // First press of the day counts, whoever physically made it. The board
+    // cannot tell who pressed; the page told the house whose turn it was.
+    riddle_input_t g1 = IN(WAKE_GUESS, 400, 0, 30);
+    g1.whose_turn = 1; g1.kids_n = 4;
+    CHECK(riddle_decide(&g1, &st) == ACT_SHOW_RESULT);
+    CHECK(st.kid_streak[1] == 1 && st.guess == 0);
+
+    // Every press after it today is heard and changes nothing -- not the
+    // recorded guess, not the streak, not the state.
+    for (int i = 0; i < 5; i++) {
+        riddle_input_t again = IN(WAKE_GUESS, 400, 2, 30);
+        again.whose_turn = 1; again.kids_n = 4;
+        CHECK(riddle_decide(&again, &st) == ACT_ACK_ONLY);
+    }
+    CHECK(st.guess == 0);                 // the first press still owns the day
+    CHECK(st.kid_streak[1] == 1);         // and nobody else's turn was credited
+    for (int i = 0; i < KIDS_MAX; i++)
+        if (i != 1) CHECK(st.kid_streak[i] == 0);
+    CHECK(st.streak == 1);
+
+    // After the reveal, still acknowledged rather than refused.
+    riddle_input_t pm = IN(WAKE_AFTERNOON, 400, RIDDLE_NO_GUESS, 30);
+    pm.whose_turn = 1; pm.kids_n = 4;
+    CHECK(riddle_decide(&pm, &st) == ACT_SHOW_ANSWER);
+    riddle_input_t after = IN(WAKE_GUESS, 400, 1, 30);
+    after.whose_turn = 1; after.kids_n = 4;
+    CHECK(riddle_decide(&after, &st) == ACT_ACK_ONLY);
+
+    // A STALE SCREEN IS STILL A REFUSAL, and must stay one. It means the board
+    // missed a wake, which is a fault, and the one case where the buzz is the
+    // honest answer. If this ever becomes an ack, a dead board feels identical
+    // to a working one.
+    riddle_input_t stale = IN(WAKE_GUESS, 401, 1, 30);
+    stale.whose_turn = 2; stale.kids_n = 4;
+    CHECK(riddle_decide(&stale, &st) == ACT_NONE);
+
+    // So is a press before anything has ever been shown.
+    riddle_nvs_t fresh;
+    memset(&fresh, 0, sizeof fresh);
+    fresh.state = RS_IDLE; fresh.guess = RIDDLE_NO_GUESS;
+    riddle_input_t cold = IN(WAKE_GUESS, 400, 0, 30);
+    cold.whose_turn = 0; cold.kids_n = 4;
+    CHECK(riddle_decide(&cold, &fresh) == ACT_NONE);
+    return 0;
 }
 
 static int test_issue_and_turns(void)
@@ -1379,6 +1444,86 @@ static int test_formdata(void)
     return 0;
 }
 
+// Measures a line against a font blob read off disk, with that cut's own
+// metrics. he_measure() cannot do this: its HE_GAP / HE_SPACE / HE_LAT_W are
+// the BODY cut's constants, and the masthead needs the small cut too.
+// Mirrors he::face in ui/hebrew.cpp -- keep the numbers in step.
+struct face_m { unsigned char w[27]; int cell_w, gap, space, lat; };
+
+static int load_face(const char *path, int cell_w, int cell_h,
+                     int gap, int space, int lat, struct face_m *out)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    const long glyph = (long)(cell_w / 8) * cell_h;
+    if (fseek(f, glyph * 27, SEEK_SET) != 0) { fclose(f); return 0; }
+    const size_t got = fread(out->w, 1, 27, f);
+    fclose(f);
+    if (got != 27) return 0;
+    out->cell_w = cell_w; out->gap = gap; out->space = space; out->lat = lat;
+    return 1;
+}
+
+static int face_measure(const struct face_m *f, const char *s)
+{
+    int w = 0;
+    uint32_t cp;
+    int n;
+    while ((n = he_utf8_next(s, &cp)) > 0) {
+        if (he_is_letter(cp))              w += f->w[cp - HE_BASE] + f->gap;
+        else if (cp == ' ')                w += f->space;
+        else if (cp > 0x20 && cp < 0x7F)   w += f->lat;
+        s += n;
+    }
+    return w;
+}
+
+static int test_masthead_fits(void)
+{
+    // Real blobs, not a fabricated width table: this test exists to catch a
+    // collision measured in single pixels, so an approximation would defeat it.
+    struct face_m body, small;
+    if (!load_face("main/ui/font24HE.FON", 24, 41, HE_GAP, HE_SPACE, HE_LAT_W, &body) ||
+        !load_face("main/ui/font16HE.FON", 16, 24, 2, 5, 12, &small)) {
+        // Run from somewhere else; skip rather than fail. `make test` runs
+        // from the papercolor root, which is where this bites.
+        return 0;
+    }
+
+    // THE WIDEST DATELINE THE PAGE CAN PRODUCE. Longest weekday, a two-digit
+    // date, and an issue number with room to grow -- the collision this guards
+    // was invisible at issue 1 and real at issue 100.
+    int widest_day = 0;
+    for (int i = 0; i < 7; i++) {
+        const int w = face_measure(&small, schedule_weekday_he(i));
+        if (w > widest_day) widest_day = w;
+    }
+    char rest[64];
+    snprintf(rest, sizeof rest,
+             " \xc2\xb7 31/08 \xc2\xb7 \xd7\x92\xd7\x99\xd7\x9c\xd7\x99\xd7\x95\xd7\x9f 9999");
+    const int dateline_w = widest_day + face_measure(&small, rest);
+
+    // Geometry, exactly as draw_header draws it: the dateline is anchored at
+    // the left margin, the nameplate runs right-to-left from the right one.
+    const int dateline_right = DL_MARGIN_X + dateline_w;
+    const int name_left = (DL_CANVAS_W - DL_MARGIN_X)
+                          - face_measure(&body, MASTHEAD_NAME);
+
+    CHECK(name_left - dateline_right >= MASTHEAD_MIN_GAP);
+
+    // And the nameplate alone must not run off the left edge, which
+    // draw_line_rtl would answer by silently dropping its first letters.
+    CHECK(face_measure(&body, MASTHEAD_NAME) <= DL_CANVAS_W - 2 * DL_MARGIN_X);
+
+    // The name this replaced. Kept as a live assertion rather than a comment:
+    // it is the shape of the bug, and a future change that makes it pass again
+    // has reintroduced the collision.
+    const char *old_name = "\xd7\x97\xd7\x99\xd7\x93\xd7\xaa \xd7\x94\xd7\x91\xd7\x95\xd7\xa7\xd7\xa8";
+    const int old_left = (DL_CANVAS_W - DL_MARGIN_X) - face_measure(&body, old_name);
+    CHECK(old_left - dateline_right < MASTHEAD_MIN_GAP);
+    return 0;
+}
+
 static int test_strip(void)
 {
     // A 400x4 strip: header plus 200 bytes a row.
@@ -1445,6 +1590,7 @@ int main(void)
         { "state",           test_state },
         { "state_edges",     test_state_edges },
         { "issue_and_turns", test_issue_and_turns },
+        { "siblings",        test_siblings },
         { "weekend_select",  test_weekend_selection },
         { "wake_ring",       test_wake_ring },
         { "wake_participation", test_wake_participation },
@@ -1463,6 +1609,7 @@ int main(void)
         { "he_text",           test_he_text },
         { "riddle_batch",      test_riddle_batch },
         { "formdata",          test_formdata },
+        { "masthead_fits",     test_masthead_fits },
         { "strip",             test_strip },
     };
     for (unsigned i = 0; i < sizeof tests / sizeof tests[0]; i++) {

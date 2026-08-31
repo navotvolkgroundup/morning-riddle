@@ -204,6 +204,11 @@ extern "C" void app_main(void)
                 ESP_LOGE(TAG, "GUESS NOT SAVED -- it will be forgotten by 13:00");
             ESP_LOGW(TAG, "guess %d accepted, streak %u", b, (unsigned)st.streak);
             feedback_guess(b);
+        } else if (act == ACT_ACK_ONLY) {
+            // A sibling already answered, or this child pressed twice, or the
+            // reveal is up. Heard, not counted, and not a telling-off.
+            ESP_LOGW(TAG, "press %d acknowledged (today already answered)", b);
+            feedback_ack();
         } else {
             ESP_LOGW(TAG, "guess %d refused (state=%u, day=%ld vs today=%ld)",
                      b, (unsigned)st.state, (long)st.day, (long)in.today);

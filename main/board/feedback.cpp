@@ -43,6 +43,15 @@ void feedback_guess(int choice)
     if (M5.Speaker.isEnabled()) M5.Speaker.tone(f.hz, kOnMs);
 }
 
+void feedback_ack()
+{
+    // Dim white and one brief note. Not a choice colour, so it cannot be read
+    // as "your guess landed"; not red, so it cannot be read as "no".
+    ESP_LOGI(TAG, "acknowledged (already answered today)");
+    led_set(0x60, 0x60, 0x60);
+    if (M5.Speaker.isEnabled()) M5.Speaker.tone(880, 70);
+}
+
 void feedback_reject()
 {
     // Red and a low double note. Different in colour AND rhythm, so it does

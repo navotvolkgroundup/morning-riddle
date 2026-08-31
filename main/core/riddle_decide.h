@@ -60,6 +60,17 @@ typedef enum {
     ACT_SHOW_QUESTION,
     ACT_SHOW_ANSWER,
     ACT_SHOW_RESULT,    // right/wrong feedback immediately after a guess
+
+    // HEARD YOU, BUT IT CHANGES NOTHING. A press on today's page when today
+    // has already been answered -- by the child whose turn it was, or by a
+    // sibling who got there first, or by the same child twice.
+    //
+    // This exists because the rotation created it. The page now names ONE
+    // child a morning, so the other three press a board that used to say no.
+    // Being told "not today" and being told "no" are different things to a
+    // six-year-old, and a wall that buzzes at three children out of four every
+    // morning teaches them not to touch it.
+    ACT_ACK_ONLY,
 } riddle_action_e;
 
 // Everything that must survive a full power-off. There is no deep sleep on

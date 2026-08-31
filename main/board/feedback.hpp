@@ -34,8 +34,20 @@
 // heard the right one.
 void feedback_guess(int choice);
 
-// Something was refused: a press outside the guessing window, or a second
-// guess on a day already answered. Deliberately different in both channels.
+// The board heard the press and it changes nothing: today is already answered,
+// or the reveal is up. NOT a refusal -- the rotation names one child a morning,
+// so three others press a board that would otherwise buzz at them daily, and a
+// wall that says no to most of the house teaches them not to touch it.
+//
+// Deliberately short and soft. Three rhythms carry the three outcomes, so they
+// are distinguishable to a child who is not looking at the LED: one long note
+// for a guess that counted, one brief note for this, a descending pair for a
+// genuine refusal.
+void feedback_ack();
+
+// Something was refused: a press against a stale screen, which means the board
+// missed a wake. Deliberately different in both channels, and now genuinely
+// rare -- it is a fault signal, not the everyday answer to a second child.
 void feedback_reject();
 
 // Blocks until the LED and the tone have both finished, then turns the LED

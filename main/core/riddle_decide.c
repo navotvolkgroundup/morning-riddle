@@ -165,11 +165,21 @@ riddle_action_e riddle_decide(const riddle_input_t *in, riddle_nvs_t *st)
         return ACT_SHOW_ANSWER;
 
     case WAKE_GUESS:
-        // Late guesses are ignored, which is what closes the 15:59:58 race:
-        // whichever of the guess and the 13:00 alarm commits first wins, and
-        // the loser is a no-op rather than a contradictory redraw.
-        if (st->state != RS_QUESTION_SHOWN) return ACT_NONE;
-        if (st->day != in->today)           return ACT_NONE;  // stale screen
+        // A STALE SCREEN IS THE ONLY REAL REFUSAL. If the panel is showing
+        // another day's riddle the board missed a wake, and pressing cannot
+        // mean anything -- that is a fault, and it should feel like one.
+        if (st->day != in->today) return ACT_NONE;
+
+        // Everything else on today's page is a press the board HEARD. Already
+        // answered by a sibling, pressed twice by the same child, or pressed
+        // after the 13:00 reveal when there is nothing left to guess: none of
+        // those is a mistake, and none of them changes the state.
+        //
+        // Late guesses are still ignored, which is what closes the 12:59:58
+        // race: whichever of the guess and the 13:00 alarm commits first wins,
+        // and the loser is a no-op rather than a contradictory redraw. It is
+        // now an acknowledged no-op instead of a rejected one.
+        if (st->state != RS_QUESTION_SHOWN) return ACT_ACK_ONLY;
         st->state = RS_GUESSED;
         st->guess = in->guess;
         if (st->last_played_day != in->today) {

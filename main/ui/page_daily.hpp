@@ -17,6 +17,7 @@
 extern "C" {
 #include "daily_layout.h"
 #include "kids.h"
+#include "masthead.h"
 #include "riddle_batch.h"
 #include "strip.h"
 #include "schedule.h"

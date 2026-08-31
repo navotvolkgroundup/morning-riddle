@@ -15,9 +15,9 @@ namespace {
 constexpr int kChoiceH   = 52;
 constexpr int kChoiceGap = 8;
 
-// The paper's name. It is the one piece of text on this page that never
-// changes, which is exactly what a nameplate is.
-#define NAMEPLATE "\xd7\x97\xd7\x99\xd7\x93\xd7\xaa \xd7\x94\xd7\x91\xd7\x95\xd7\xa7\xd7\xa8"   // "the morning riddle"
+// The paper's name lives in core/masthead.h, where a host test can measure it
+// against the widest dateline the page can produce. See that file for why it
+// is not "חידת הבוקר" any more.
 
 // The answer is drawn at double size. See the draw site for why, and hebrew.hpp
 // for what pixel doubling a 24x41 blob actually looks like.
@@ -55,7 +55,7 @@ void draw_header(const page_daily_content &c)
     // Drawn at y=0, not DL_HDR_Y, and that is measured rather than fudged: ink
     // occupies rows 5..37 of the 41px body cell, so a cell at y=0 lands its ink
     // at 5..37 and clears the rule at DL_HDR_RULE_Y=42 by five pixels.
-    he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, 0, NAMEPLATE);
+    he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, 0, MASTHEAD_NAME);
 
     // "יום שני · 31.08 · גיליון 12"
     //
