@@ -1176,7 +1176,11 @@ static int test_daily_layout(void)
         if (L.weather_y  != DL_ABSENT) CHECK(L.weather_y  > DL_HDR_RULE_Y);
         if (L.birthday_y != DL_ABSENT) CHECK(L.birthday_y > DL_HDR_RULE_Y);
         if (L.callout_y  != DL_ABSENT) CHECK(L.callout_y  > DL_HDR_RULE_Y);
-        CHECK(L.riddle_top + L.riddle_h == DL_BODY_BOTTOM);
+        // The riddle zone ends above the folio, not at the page edge. A
+        // printed page ends deliberately; this one used to stop wherever the
+        // last choice fell.
+        CHECK(L.riddle_top + L.riddle_h == DL_FOLIO_Y - DL_ZONE_GAP);
+        CHECK(DL_FOLIO_Y + DL_FOLIO_H <= DL_BODY_BOTTOM);
         CHECK(L.riddle_top < DL_CANVAS_H);
 
         // SIDE BY SIDE, and this assertion used to say the opposite: "stacked,
@@ -1272,25 +1276,31 @@ static int test_daily_layout(void)
     daily_layout_t Ld;
     daily_layout(&day, &Ld);
 
-    // A short riddle leaves real slack, and the picture takes it.
-    CHECK(daily_image_in_slack(Ld.riddle_top, Ld.riddle_h, 200, 90) != DL_ABSENT);
-    CHECK(daily_image_in_slack(Ld.riddle_top, Ld.riddle_h, 200, 90)
+    // A short riddle leaves real slack, and the picture takes it. 56 is what
+    // the generator publishes by default -- the folio took 31px off the zone,
+    // so 90 no longer fits an ordinary weekday and 56 comfortably does.
+    CHECK(daily_image_in_slack(Ld.riddle_top, Ld.riddle_h, 200, 56) != DL_ABSENT);
+    CHECK(daily_image_in_slack(Ld.riddle_top, Ld.riddle_h, 200, 56)
           == Ld.riddle_top + DL_ZONE_GAP);
+    // And the tallest the format allows does not, on that same day, which is
+    // the self-regulating part: a big band appears only on a light page.
+    CHECK(daily_image_in_slack(Ld.riddle_top, Ld.riddle_h, 200, STRIP_H_MAX) == DL_ABSENT);
 
     // A block that fills the zone leaves none, and there is no picture. This
     // is the case the old design got wrong by reserving space up front.
-    CHECK(daily_image_in_slack(Ld.riddle_top, Ld.riddle_h, Ld.riddle_h, 90) == DL_ABSENT);
+    CHECK(daily_image_in_slack(Ld.riddle_top, Ld.riddle_h, Ld.riddle_h, 56) == DL_ABSENT);
 
     // The boundary: the picture needs a gap above AND below it, so it fits at
     // exactly image_h + 2 gaps of slack and not one pixel less.
-    const int need = 90 + 2 * DL_ZONE_GAP;
-    CHECK(daily_image_in_slack(100, 400, 400 - need, 90) != DL_ABSENT);
-    CHECK(daily_image_in_slack(100, 400, 400 - need + 1, 90) == DL_ABSENT);
+    const int need = 56 + 2 * DL_ZONE_GAP;
+    CHECK(daily_image_in_slack(100, 400, 400 - need, 56) != DL_ABSENT);
+    CHECK(daily_image_in_slack(100, 400, 400 - need + 1, 56) == DL_ABSENT);
 
     // No picture asked for, no picture placed -- and a negative height is a
     // corrupt strip header, not a request.
     CHECK(daily_image_in_slack(100, 400, 100, 0) == DL_ABSENT);
     CHECK(daily_image_in_slack(100, 400, 100, -5) == DL_ABSENT);
+    CHECK(daily_image_in_slack(100, 400, 100, 0) == DL_ABSENT);
 
     // AND IT NEVER PUSHES THE RIDDLE ANYWHERE. Whatever the zones and whatever
     // the picture, the riddle keeps its floor, because the picture is no

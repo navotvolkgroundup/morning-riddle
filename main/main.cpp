@@ -504,6 +504,12 @@ extern "C" void app_main(void)
     std::snprintf(datebuf, sizeof datebuf, "%02d/%02d",
                   lt.tm_mday % 100, (lt.tm_mon + 1) % 100);
     c.date       = datebuf;
+    // The edition line. On a 06:31 wake this is the morning edition; on the
+    // 13:00 redraw it is the afternoon one, which is what a paper would call
+    // it too.
+    static char edbuf[8];
+    std::snprintf(edbuf, sizeof edbuf, "%02d:%02d", lt.tm_hour % 100, lt.tm_min % 100);
+    c.edition    = edbuf;
     c.issue      = st.issue;
     c.turn_kid   = in.whose_turn;
     c.turn_streak = (in.whose_turn >= 0 && in.whose_turn < KIDS_MAX)

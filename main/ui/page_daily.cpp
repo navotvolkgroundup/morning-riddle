@@ -46,6 +46,42 @@ const he_metrics_t *metrics()
 
 // The paper's name, alone on the top line, in the one colour a masthead has
 // ever been printed in besides black.
+// The running foot: the paper's name and issue at the head of the line, the
+// edition time at the other end.
+//
+// A printed page ends deliberately. This one used to stop wherever the last
+// choice fell and leave the bottom third blank, which reads as a page that ran
+// out rather than one that finished.
+//
+// AND IT IS WHERE THE ARRIVAL GETS MARKED. "Edition 06:31" says this was made
+// this morning, not merely that it is current -- which is the difference
+// between a display and a paper. It cannot go in the dateline: that line is
+// already 225px at its widest against a 79px nameplate, and a time would put
+// the two back into the collision the rename just removed.
+void draw_folio(const page_daily_content &c)
+{
+    ui_canvas().fillRect(DL_MARGIN_X, DL_FOLIO_Y - DL_ZONE_GAP,
+                         DL_CANVAS_W - 2 * DL_MARGIN_X, DL_HAIR, TFT_BLACK);
+
+    char right[48];
+    int n = std::snprintf(right, sizeof right, "%s", MASTHEAD_NAME);
+    if (c.issue > 1 && n > 0 && n < (int)sizeof right)
+        std::snprintf(right + n, sizeof right - n,
+                      " \xc2\xb7 \xd7\x92\xd7\x99\xd7\x9c\xd7\x99\xd7\x95\xd7\x9f %u",
+                      (unsigned)c.issue);
+    he::draw_line_rtl(he::small(), DL_CANVAS_W - DL_MARGIN_X, DL_FOLIO_Y, right);
+
+    if (c.edition && c.edition[0]) {
+        char left[32];
+        std::snprintf(left, sizeof left,
+                      "\xd7\x9e\xd7\x94\xd7\x93\xd7\x95\xd7\xa8\xd7\xaa %s",  // "edition HH:MM"
+                      c.edition);
+        he::draw_line_rtl(he::small(),
+                          DL_MARGIN_X + he::measure(he::small(), left),
+                          DL_FOLIO_Y, left);
+    }
+}
+
 void draw_nameplate()
 {
     he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, 0, MASTHEAD_NAME,
@@ -274,27 +310,72 @@ void page_daily_draw(const page_daily_content &c)
                          DL_CANVAS_W - 2 * DL_MARGIN_X, DL_LEAD_RULE_H,
                          TFT_BLACK);
 
-    // THE RIDDLE BLOCK, CENTRED IN WHAT IS LEFT.
+    // THE LEAD IS SET FOR THE DAY, not poured into a slot.
     //
-    // It used to start hard against riddle_top and flow down, so the
-    // composition was decided by how long the riddle happened to be: a short
-    // one left the bottom of the panel blank and looked unfinished, a long one
-    // filled it and looked deliberate. Measuring first and centring makes both
-    // look composed.
+    // Every morning had the same skeleton in the same places with only the
+    // words swapped, which is a template being filled in. A front page is
+    // composed: the lead is enormous when it can be and modest when it cannot,
+    // and the shape of the page tells you what kind of day it is before you
+    // read a word. That is the whole reason a paper feels new, and it is also
+    // the answer to the failure the roadmap named -- a wall that quietly stops
+    // being looked at.
+    //
+    // The rule: a question that fits two lines at double size gets double
+    // size. Most do not, and those are set at reading size with a drop cap,
+    // which is what you give a lead that cannot be big. So the two devices are
+    // alternatives rather than decoration, and the page genuinely differs from
+    // one morning to the next.
     const int riddle_w = DL_CANVAS_W - 2 * DL_MARGIN_X;
     const char *q = c.question ? c.question : "";
 
-    // THE DROP CAP, and the one thing that had to be right about it: it is the
-    // first LETTER of a word, so any real gap after it makes the remainder
-    // read as a separate token. Hebrew "מה" broken as "מ ה" is not a
-    // typographic device, it is a spelling mistake. Two pixels, no more.
+    const char *kicker = kind_label(c.kind);
+    const int kicker_h = kicker ? DL_SMALL_H + 6 : 0;
+    const char *why = (c.why && c.why[0]) ? c.why : nullptr;
+    const int why_lines = (c.show_answer && why)
+                              ? he::wrapped_lines(m, riddle_w, why, 3) : 0;
+
+    // What everything below the question costs, whatever size the question is.
+    int below_h = 0;
+    if (c.show_answer && c.answer) {
+        below_h = 16 + DL_HAIR + 8 + HE_H * kAnswerScale;
+        if (why_lines) below_h += 14 + why_lines * (HE_H - 6);
+    } else if (c.has_choices) {
+        below_h = 10 + 3 * (DL_HAIR + 9 + DL_LINE_H + 9) + DL_HAIR;
+    }
+
+    // NO VARIABLE LEAD SIZE, AND IT IS THE GEOMETRY THAT SAYS SO.
+    //
+    // A front page varies its headline size by the day, and that was the plan.
+    // It cannot happen here, and the numbers are not close. Three physical
+    // buttons mean three vertical choice rows; that block is a fixed 191px of
+    // a 301px riddle zone, leaving 110px for the lead. One line at double size
+    // is 70px and would fit -- except that ZERO of the thirty-two questions in
+    // the batch fit one line at 186px, which is what double size costs in
+    // width. Eight fit two lines, and two lines is 140px.
+    //
+    // Squeezing the choices to 3px of padding would buy it on 8 mornings in
+    // 32. That is a tighter page every day for a feature that fires a quarter
+    // of the time, and it is the third thing today that would have shipped as
+    // code that never runs.
+    //
+    // WHAT VARIES INSTEAD IS THE PICTURE BAND, and it already does: the block
+    // is measured and centred, so a short question leaves slack the band takes
+    // and a long one does not. Short mornings get an illustration, long ones
+    // get more words. That is the composition, and it is content-driven, which
+    // is what "composed per edition" actually needed to mean.
+    const int lead_scale = 1;
+    int q_lines = 0;
+
+    // The drop cap. It is the first LETTER of a word, so any real gap after it
+    // makes the remainder read as a separate token -- Hebrew "מה" broken as
+    // "מ ה" is not a typographic device, it is a spelling mistake.
     char cap[8] = {0};
     int cap_w = 0;
     {
         uint32_t cp;
         const int n = he_utf8_next(q, &cp);
-        // Only Hebrew letters get dropped. A question opening on a digit or a
-        // quote would give a cap that reads as a stray mark.
+        // Only Hebrew letters. A question opening on a digit or a quote gives a
+        // cap that reads as a stray mark.
         if (n > 0 && n < (int)sizeof cap && he_is_letter(cp)) {
             std::memcpy(cap, q, (size_t)n);
             cap_w = he::measure(he::body(), cap, kAnswerScale) + 2;
@@ -303,38 +384,21 @@ void page_daily_draw(const page_daily_content &c)
         }
     }
 
-    // Line 1 is narrowed by the cap; the rest run full width.
-    const int first_w = riddle_w - cap_w;
+    const int first_w  = riddle_w - cap_w;
     const int first_len = cap_w ? he_line_break(m, q, first_w) : 0;
     const char *tail = q + first_len;
     while (*tail == ' ') tail++;
-    const int tail_lines = he::wrapped_lines(m, riddle_w, tail, 4);
-    const int q_lines = (cap_w ? 1 : he::wrapped_lines(m, riddle_w, q, 5))
-                        + (cap_w ? tail_lines : 0);
+    const int tail_lines = cap_w ? he::wrapped_lines(m, riddle_w, tail, 4) : 0;
+    if (lead_scale == 1)
+        q_lines = cap_w ? (1 + tail_lines) : he::wrapped_lines(m, riddle_w, q, 5);
 
-    const char *kicker = kind_label(c.kind);
-    const int kicker_h = kicker ? DL_SMALL_H + 6 : 0;
+    const int line_h = (HE_H - 6) * lead_scale;
+    int block_h = kicker_h + q_lines * line_h + below_h;
 
-    const char *why = (c.why && c.why[0]) ? c.why : nullptr;
-    const int why_lines = (c.show_answer && why)
-                              ? he::wrapped_lines(m, riddle_w, why, 3) : 0;
-
-    int block_h = kicker_h + q_lines * (HE_H - 6);
-    if (c.show_answer && c.answer) {
-        block_h += 16 + DL_HAIR + 8 + HE_H * kAnswerScale;
-        if (why_lines) block_h += 14 + why_lines * (HE_H - 6);
-    } else if (c.has_choices) {
-        // Each choice sits under its own hairline, and one closes the list.
-        block_h += 10 + 3 * (DL_HAIR + 9 + DL_LINE_H + 9) + DL_HAIR;
-    }
-
-    // TODAY'S PICTURE, in whatever the block is not using. Six colours, which
-    // is the whole gamut and the first time this page has used more than two.
-    //
-    // Drawn a pixel at a time into the RAM canvas: 36,000 drawPixel calls for
-    // a 400x90 strip, which sounds careless and costs single-digit
-    // milliseconds against a seventeen-second panel refresh. A row-packing
-    // optimisation here would be measuring the wrong thing.
+    // Today's picture, in whatever the block is not using. Six colours, which
+    // is the whole gamut. Drawn a pixel at a time into the RAM canvas: 22,000
+    // drawPixel calls for a 400x56 band, single-digit milliseconds against a
+    // seventeen-second refresh.
     const int image_h = c.image ? (int)c.image->h : 0;
     const int image_y = daily_image_in_slack(L.riddle_top, L.riddle_h,
                                              block_h, image_h);
@@ -345,18 +409,14 @@ void page_daily_draw(const page_daily_content &c)
         for (int row = 0; row < image_h; row++) {
             for (int x = 0; x < STRIP_W; x++) {
                 const uint8_t ink = strip_at(c.image, x, row);
-                // White is the page. Skipping it is what lets an illustration
-                // sit on the paper rather than in a box.
-                if (ink == STRIP_WHITE) continue;
+                if (ink == STRIP_WHITE) continue;   // white is the paper
                 ui_canvas().drawPixel(x, image_y + row, kInk[ink]);
             }
         }
     }
 
-    // The block centres in what is left after the picture, so a page with one
-    // does not look bottom-heavy and a page without one is unchanged.
     const int taken = (image_y != DL_ABSENT) ? image_h + 2 * DL_ZONE_GAP : 0;
-    const int slack = DL_BODY_BOTTOM - L.riddle_top - block_h - taken;
+    const int slack = L.riddle_h - block_h - taken;
     int y = L.riddle_top + taken + (slack > 0 ? slack / 2 : 0);
 
     if (kicker) {
@@ -371,16 +431,16 @@ void page_daily_draw(const page_daily_content &c)
         he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, y - 6, cap,
                           TFT_RED, kAnswerScale);
         char buf[192];
-        int n = first_len < (int)sizeof buf - 1 ? first_len : (int)sizeof buf - 1;
+        const int n = first_len < (int)sizeof buf - 1 ? first_len : (int)sizeof buf - 1;
         std::memcpy(buf, q, (size_t)n);
         buf[n] = '\0';
         he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X - cap_w, y, buf);
         y += HE_H - 6;
         y = he::draw_wrapped(m, y, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
-                             DL_BODY_BOTTOM, tail, 4);
+                             DL_FOLIO_Y, tail, 4);
     } else {
         y = he::draw_wrapped(m, y, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
-                             DL_BODY_BOTTOM, q, 5);
+                             DL_FOLIO_Y, q, 5);
     }
     if (y < 0) y = L.riddle_top + 3 * (HE_H - 6);   // clamped; drew what it could
 
@@ -389,30 +449,26 @@ void page_daily_draw(const page_daily_content &c)
         ui_canvas().fillRect(DL_MARGIN_X, y, DL_CANVAS_W - 2 * DL_MARGIN_X,
                              DL_HAIR, TFT_BLACK);
         y += DL_HAIR + 8;
-        // Double size, in red: the payoff the whole day builds to, and it
-        // should be readable across a room.
         he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, y, c.answer,
                           TFT_RED, kAnswerScale);
         y += HE_H * kAnswerScale;
-
         if (why_lines) {
             y += 14;
             y = he::draw_wrapped(m, y, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
-                                 DL_BODY_BOTTOM, why, 3);
+                                 DL_FOLIO_Y, why, 3);
             // The end mark. A filled square closing the story is the oldest
-            // piece of newspaper furniture there is, and it tells a child the
-            // page has finished rather than run out of room.
+            // piece of newspaper furniture there is.
             if (y > 0)
                 ui_canvas().fillRect(DL_MARGIN_X, y - 30, 11, 11, TFT_BLACK);
         }
     } else if (c.has_choices) {
         y += 10;
         for (int i = 0; i < 3; i++) {
-            if (y + DL_LINE_H + 18 > DL_BODY_BOTTOM) break;
-            // A rule above each choice, and one below the last. Ruled lists
-            // are how a paper prints options, and the rules also do the job
-            // the deleted A/B/C markers were supposed to do: they separate
-            // three lines into three things you can point at.
+            if (y + DL_LINE_H + 18 > DL_FOLIO_Y - DL_ZONE_GAP) break;
+            // A rule above each choice, and one below the last. Ruled lists are
+            // how a paper prints options, and the rules also do the job the
+            // deleted A/B/C markers were meant to: they turn three lines into
+            // three things you can point at.
             ui_canvas().fillRect(DL_MARGIN_X, y, DL_CANVAS_W - 2 * DL_MARGIN_X,
                                  DL_HAIR, TFT_BLACK);
             y += DL_HAIR + 9;
@@ -423,6 +479,8 @@ void page_daily_draw(const page_daily_content &c)
         ui_canvas().fillRect(DL_MARGIN_X, y, DL_CANVAS_W - 2 * DL_MARGIN_X,
                              DL_HAIR, TFT_BLACK);
     }
+
+    draw_folio(c);
 
     ui_canvas().endWrite();
 }

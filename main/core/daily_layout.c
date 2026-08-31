@@ -81,7 +81,8 @@ void daily_layout(const daily_flags_t *f, daily_layout_t *out)
     y += DL_LEAD_RULE_H + 10;
 
     out->riddle_top = y;
-    out->riddle_h   = DL_BODY_BOTTOM - y;
+    // The folio and its gap are not the riddle's to use.
+    out->riddle_h   = (DL_FOLIO_Y - DL_ZONE_GAP) - y;
 
 
 }

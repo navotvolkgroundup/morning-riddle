@@ -40,6 +40,7 @@ extern "C" {
 
 struct page_daily_content {
     const char     *date;           // short date, ASCII, e.g. "27/08"
+    const char     *edition;        // "HH:MM" this page was published
     uint32_t        issue;          // mornings published; hidden below 2
     int             turn_kid;       // whose turn today, or -1
     uint32_t        turn_streak;    // that kid's consecutive turns; hidden below 2

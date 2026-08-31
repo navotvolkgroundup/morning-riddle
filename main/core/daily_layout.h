@@ -60,14 +60,31 @@ extern "C" {
 // The boxed weather panel: symbol, temperature, advice. The timetable wraps
 // beside it in what is left, which is what makes the band read as a page
 // rather than as two stacked captions.
+// THE FOLIO, at the foot of the page.
+//
+// A printed page ends deliberately. This one used to stop wherever the last
+// choice happened to fall and leave the bottom third blank, which reads as a
+// page that ran out rather than one that finished. A running foot closes it,
+// and it is where the edition time goes: the dateline cannot carry a time
+// without colliding with the nameplate again, and a folio is where a paper
+// puts its edition line anyway.
+#define DL_FOLIO_H      24
+#define DL_FOLIO_Y      (DL_BODY_BOTTOM - DL_FOLIO_H)
+
 #define DL_WXBOX_W     126
 #define DL_WXBOX_H     104
 #define DL_SCHED_LINES   2
 
-// A wrapped question (two lines, 82) plus three choices (~64 each, 192) is
-// 274. The worst case -- every zone present -- leaves 307, so this fires
-// before a riddle clips rather than after someone notices one did.
-#define DL_RIDDLE_MIN_H 280
+// THE FLOOR GUARDS THE COMMON CASE, NOT THE WORST ONE, and it always did.
+//
+// A two-line question at reading size plus three ruled choices is 261. A
+// FIVE-line question plus the same choices is 366, which no floor on a 600px
+// panel was ever going to guarantee -- the wrapper caps at five lines and the
+// generator's validator is what actually keeps questions short.
+//
+// So this is the two-line case with headroom, and the folio's 31px comes out
+// of it: 272 leaves the same 11px margin over 261 that 280 left over 274.
+#define DL_RIDDLE_MIN_H 272
 
 // ZERO, AND THE HEADER ALREADY SAID THIS WAS A CONSTANT CHANGE IF WRONG.
 //
