@@ -9,11 +9,13 @@
 
 #include "daily_layout.h"
 
+#include "strip.h"
+
 void daily_layout(const daily_flags_t *f, daily_layout_t *out)
 {
     if (!out) return;
 
-    daily_flags_t none = { false, false, false, false };
+    daily_flags_t none = { false, false, false, false, false, 0 };
     if (!f) f = &none;
 
     out->band_y           = DL_HDR_RULE_Y + DL_HDR_RULE_H + DL_ZONE_GAP;
@@ -82,21 +84,39 @@ void daily_layout(const daily_flags_t *f, daily_layout_t *out)
 
     out->riddle_top = y;
     // The folio and its gap are not the riddle's to use.
-    out->riddle_h   = (DL_FOLIO_Y - DL_ZONE_GAP) - y;
+    // The folio is never the riddle's. The fact is not either, on an ordinary
+    // morning -- but it yields on a birthday and on the afternoon edition.
+    //
+    // Both are already the page's second item. A birthday banner in red is the
+    // thing that makes that morning different, and after 13:00 the answer and
+    // its reason are the story. Printing a fun fact underneath either is a
+    // third item on a page with room for two.
+    // THE SECOND ITEM: a picture if one was published, a fact otherwise, and
+    // neither on a birthday or in the afternoon edition -- both of those
+    // already have their own second item, and a page with room for two does
+    // not get three.
+    out->fact_y = DL_ABSENT;
+    out->image_y = DL_ABSENT;
+    out->image_h = 0;
+    int second_h = 0;
+    if (!f->reveal && !f->birthday) {
+        // Clamped, not trusted. image_h comes from a header fetched over the
+        // network; strip_parse bounds it, but the layout is the last thing
+        // between a wrong number and a clipped riddle.
+        const int cap = DL_HAIR + 6 + STRIP_H_MAX;
+        if (f->image_h > 0 && DL_HAIR + 6 + f->image_h <= cap) {
+            out->image_h = f->image_h;
+            second_h = DL_HAIR + 6 + f->image_h;
+            out->image_y = DL_FOLIO_Y - DL_ZONE_GAP - second_h;
+        } else {
+            second_h = DL_FACT_H;
+            out->fact_y = DL_FACT_Y;
+        }
+    }
+    const int floor_y = (second_h > 0)
+                            ? (DL_FOLIO_Y - DL_ZONE_GAP - second_h - DL_ZONE_GAP)
+                            : (DL_FOLIO_Y - DL_ZONE_GAP);
+    out->riddle_h   = floor_y - y;
 
 
-}
-
-int daily_image_in_slack(int riddle_top, int riddle_h, int block_h, int image_h)
-{
-    if (image_h <= 0) return DL_ABSENT;
-
-    // What the block is not using. DL_ZONE_GAP twice: once above the picture
-    // and once below it, so it never touches the lead rule or the question.
-    const int slack = riddle_h - block_h;
-    if (slack < image_h + 2 * DL_ZONE_GAP) return DL_ABSENT;
-
-    // Directly under the lead rule, which is where a paper puts a picture that
-    // belongs to the story beneath it.
-    return riddle_top + DL_ZONE_GAP;
 }

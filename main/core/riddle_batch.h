@@ -28,6 +28,7 @@ extern "C" {
 #define RB_A_MAX    64
 #define RB_BY_MAX   16
 #define RB_WHY_MAX 160
+#define RB_FACT_MAX 200
 
 // What kind of thing this is. The renderer is the same for all of them -- a
 // question, up to three choices, an answer -- and only the label above the
@@ -56,6 +57,18 @@ typedef struct {
     // the moment a riddle either teaches something or is just a quiz a child
     // got wrong. Optional: an empty `why` draws the page exactly as before.
     char why[RB_WHY_MAX];
+
+    // THE FACT OF THE DAY, and it rides with the riddle rather than living in
+    // its own file. One asset, one fetch, one thing to publish -- and the fact
+    // is then guaranteed to exist on any morning the riddle does, which a
+    // second file could not promise.
+    //
+    // Not from an API. The free fact services are English-only and this page
+    // is Hebrew for children; there is no device-side translation, and a
+    // runtime call would add a network dependency to the morning wake with no
+    // offline fallback. The generator already runs a model monthly to write
+    // the riddles, so it writes these too.
+    char fact[RB_FACT_MAX];
     uint8_t kind;               // riddle_kind_e
     bool has_choices;
     bool weekend;

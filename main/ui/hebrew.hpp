@@ -98,6 +98,14 @@ int measure(const face &f, const char *s, int scale = 1);
 void draw_line_rtl_fit(const face &f, int right_x, int left_limit,
                        int y, const char *s, uint32_t colour = TFT_BLACK);
 
+// Where to break a line for a given face.
+//
+// core's he_line_break() is pinned to the BODY cut -- its HE_GAP, HE_SPACE and
+// HE_LAT_W are that cut's constants and the host tests are written against
+// them. The fact of the day is set in the small face and does need wrapping,
+// so this is the same walk with the face's own metrics.
+int he_line_break_face(const face &f, const char *s, int width);
+
 // Number of lines draw_wrapped would produce, without drawing any of them.
 // The page needs this to centre a block it has not drawn yet. Body face only.
 int wrapped_lines(const he_metrics_t *m, int width, const char *text,

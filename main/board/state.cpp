@@ -37,7 +37,7 @@ bool state_nvs_init()
     return ok;
 }
 
-uint32_t state_config_fingerprint(const kids_t *k, const schedule_t *s)
+uint32_t state_config_fingerprint(const kids_t *k, const kids_schedule_t *s)
 {
     // FNV-1a over both blobs. Not a checksum against corruption -- NVS already
     // does that -- just "is this the same config I drew last time".

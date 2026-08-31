@@ -44,7 +44,7 @@ bool state_save(const riddle_nvs_t *st);
 // scheduled wake, because the riddle had not changed. That reads as a setup
 // page that does not work. Comparing the current fingerprint against the one
 // stored at the last successful draw buys exactly one redraw per edit.
-uint32_t state_config_fingerprint(const kids_t *k, const schedule_t *s);
+uint32_t state_config_fingerprint(const kids_t *k, const kids_schedule_t *s);
 uint32_t state_drawn_config();
 void state_set_drawn_config(uint32_t fp);
 

@@ -62,18 +62,23 @@ typedef enum {
 // Bounds the page is willing to draw. Width is the panel's, exactly: a strip
 // that is not full width would need an alignment rule nobody has asked for.
 //
-// 96 IS NOT A ROUND NUMBER, IT IS THE BUDGET. A normal school day carries a
-// timetable, a weather line and a turn line, which leaves the riddle 381px
-// against a floor of 280 -- so 94px is everything the picture can be given
-// before the riddle starts clipping. A taller strip is not a bigger picture,
-// it is a picture that never gets drawn: the first cut of this was 140px and
-// the layout declined it on every day except an empty one.
+// 56 IS THE SIZE, NOT A MAXIMUM, and the page has argued it down twice.
 //
-// On a birthday the page cannot afford a picture at any height, and declines.
-// That is the right answer twice over -- there is already a red banner on the
-// page that morning, and it should not be competing with an illustration.
+// The band shares one slot with the fact of the day -- both are the page's
+// second item, and a page with room for two does not get three. That slot is
+// what the riddle can spare above the folio: at 56px the zone is 231 against a
+// floor of 224, and at 64 it is 223 and the riddle starts clipping.
+//
+// So a taller band is not a bigger picture, it is a picture that never gets
+// drawn. The first cut was 140px and the layout declined it on every day
+// except an empty one. A fixed height is also simply better design: the band
+// is a constant on the page rather than a thing that moves everything else.
+//
+// On a birthday and on the afternoon edition there is no band at any height.
+// Both mornings already have a second item -- a red banner, or the answer and
+// its reason -- and a third is one too many.
 #define STRIP_W       400
-#define STRIP_H_MAX    96
+#define STRIP_H_MAX    56
 
 typedef struct {
     uint16_t       w, h;

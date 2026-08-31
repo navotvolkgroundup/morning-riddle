@@ -18,7 +18,11 @@ namespace {
 
 constexpr const char *kNamespace = "riddle";
 constexpr const char *kKeyKids   = "kids";
-constexpr const char *kKeySched  = "sched";
+// A NEW KEY, not the old one. The blob went from one timetable to four, so an
+// old "sched" value is the wrong size and nvs_get_exact refuses it -- which is
+// correct but silent. A new name makes the migration a fact rather than a
+// mystery: the old key is simply never read again.
+constexpr const char *kKeySched  = "scheds";
 
 constexpr const char *kPathKids  = SD_MOUNT_POINT "/kids.json";
 constexpr const char *kPathSched = SD_MOUNT_POINT "/schedule.json";
@@ -55,12 +59,12 @@ void sdconfig_store_kids(const kids_t *kids)
     if (kids && state_nvs_init()) nvs_put_blob(kKeyKids, kids, sizeof *kids);
 }
 
-void sdconfig_store_schedule(const schedule_t *sched)
+void sdconfig_store_schedule(const kids_schedule_t *sched)
 {
     if (sched && state_nvs_init()) nvs_put_blob(kKeySched, sched, sizeof *sched);
 }
 
-void sdconfig_load_cached(kids_t *kids, schedule_t *sched)
+void sdconfig_load_cached(kids_t *kids, kids_schedule_t *sched)
 {
     if (kids)  std::memset(kids,  0, sizeof *kids);
     if (sched) std::memset(sched, 0, sizeof *sched);
@@ -69,7 +73,7 @@ void sdconfig_load_cached(kids_t *kids, schedule_t *sched)
     if (sched) nvs_get_exact(kKeySched, sched, sizeof *sched);
 }
 
-void sdconfig_load(kids_t *kids, schedule_t *sched)
+void sdconfig_load(kids_t *kids, kids_schedule_t *sched)
 {
     if (!kids || !sched) return;
     std::memset(kids, 0, sizeof *kids);
@@ -89,12 +93,12 @@ void sdconfig_load(kids_t *kids, schedule_t *sched)
                      (unsigned)kids->kid[i].birth_month);
     }
     if (nvs_get_exact(kKeySched, sched, sizeof *sched)) {
-        ESP_LOGI(TAG, "schedule from cache: %s",
-                 schedule_is_empty(sched) ? "empty" : "present");
-        for (int d = 0; d < SCHED_DAYS; d++)
-            if (sched->line[d][0])
-                ESP_LOGI(TAG, "  day %d: \"%s\" (%d bytes)", d, sched->line[d],
-                         (int)strlen(sched->line[d]));
+        for (int k = 0; k < KIDS_MAX; k++)
+            for (int d = 0; d < SCHED_DAYS; d++)
+                if (sched->kid[k].line[d][0])
+                    ESP_LOGI(TAG, "  kid %d day %d: \"%s\" (%d bytes)", k, d,
+                             sched->kid[k].line[d],
+                             (int)strlen(sched->kid[k].line[d]));
     }
 
     if (!sd_mount()) return;            // no card: the cache stands
@@ -121,27 +125,15 @@ void sdconfig_load(kids_t *kids, schedule_t *sched)
     }
 
     // ---- schedule.json ----
-    {
-        static char buf[2048];
-        const sdj_status_e rd = sdj_read(kPathSched, buf, sizeof buf, nullptr);
-        if (rd == SDJ_OK) {
-            static schedule_t parsed;
-            if (schedule_parse(buf, &parsed)) {
-                if (std::memcmp(&parsed, sched, sizeof parsed) != 0) {
-                    *sched = parsed;
-                    nvs_put_blob(kKeySched, &parsed, sizeof parsed);
-                    ESP_LOGI(TAG, "imported a timetable from the card");
-                }
-            } else {
-                ESP_LOGW(TAG, "%s did not parse; keeping the cached timetable",
-                         kPathSched);
-            }
-        } else if (rd != SDJ_ABSENT) {
-            ESP_LOGW(TAG, "%s: %s", kPathSched, sdj_strerror(rd));
-        }
-    }
+    //
+    // NOT IMPORTED ANY MORE. The card held one household timetable and there
+    // are four now, one per child, which would need a new file format. This
+    // board's reader has never completed a data-block transfer -- SPI and
+    // SDMMC both fail at sdmmc_init_sd_ssr, before any filesystem -- so
+    // designing a format for a path that has never once worked is effort spent
+    // on a hypothetical. Timetables come from the portal.
 
     // If either file was expected and missing, say what IS on the card. "No
     // such file" plus a listing answers the next question immediately.
-    if (kids->count == 0 && schedule_is_empty(sched)) sd_list_root();
+    if (kids->count == 0) sd_list_root();
 }

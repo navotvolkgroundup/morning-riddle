@@ -227,6 +227,7 @@ void page_daily_draw(const page_daily_content &c)
     f.weather  = c.wx && c.wx->fetched_at != 0;
     f.callout  = c.turn_kid >= 0 && c.kids && c.turn_kid < c.kids->count;
     f.birthday = c.kids && kids_birthday_on(c.kids, c.month, c.day) >= 0;
+    f.reveal   = c.show_answer;
 
     daily_layout_t L;
     daily_layout(&f, &L);
@@ -326,17 +327,33 @@ void page_daily_draw(const page_daily_content &c)
 
     const char *kicker = kind_label(c.kind);
     const int kicker_h = kicker ? DL_SMALL_H + 6 : 0;
-    const char *why = (c.why && c.why[0]) ? c.why : nullptr;
-    const int why_lines = (c.show_answer && why)
-                              ? he::wrapped_lines(m, riddle_w, why, 3) : 0;
+    const int q_lines_pre = he::wrapped_lines(m, riddle_w, q, 5);
 
-    // What everything below the question costs, whatever size the question is.
+    // THE EXPLANATION IS SIZED TO WHAT IS LEFT, not clipped by the wrapper.
+    //
+    // draw_wrapped returns -1 when a block will not fit and the caller clamps,
+    // which loses the last line silently. On a birthday afternoon the banner
+    // takes 74px and the reveal wants 296 against 274, which is short by less
+    // than one line -- so the honest fix is to ask for two lines instead of
+    // three, not to draw three and lose one.
+    const char *why = (c.why && c.why[0]) ? c.why : nullptr;
+    int why_lines = 0;
+    if (c.show_answer && why) {
+        const int spent = kicker_h + q_lines_pre * (HE_H - 6)
+                          + 16 + DL_HAIR + 8 + HE_H * kAnswerScale + 14;
+        int room = (L.riddle_h - spent) / (HE_H - 6);
+        if (room > 3) room = 3;
+        if (room > 0) why_lines = he::wrapped_lines(m, riddle_w, why, room);
+    }
+
+    // What everything below the question costs.
     int below_h = 0;
     if (c.show_answer && c.answer) {
         below_h = 16 + DL_HAIR + 8 + HE_H * kAnswerScale;
         if (why_lines) below_h += 14 + why_lines * (HE_H - 6);
     } else if (c.has_choices) {
-        below_h = 10 + 3 * (DL_HAIR + 9 + DL_LINE_H + 9) + DL_HAIR;
+        below_h = 10 + 3 * (DL_HAIR + DL_CHOICE_PAD + DL_LINE_H + DL_CHOICE_PAD)
+                  + DL_HAIR;
     }
 
     // NO DROP CAP, AND NO VARIABLE LEAD SIZE. Both were tried; both were wrong
@@ -357,33 +374,12 @@ void page_daily_draw(const page_daily_content &c)
     // double size is 140. Eight of the thirty-two questions would fit if the
     // rows were tightened to 48px, which also buys the picture band back --
     // that is a real proposal and it is not this commit.
-    const int q_lines = he::wrapped_lines(m, riddle_w, q, 5);
+    const int q_lines = q_lines_pre;
 
     int block_h = kicker_h + q_lines * (HE_H - 6) + below_h;
 
-    // Today's picture, in whatever the block is not using. Six colours, which
-    // is the whole gamut. Drawn a pixel at a time into the RAM canvas: 22,000
-    // drawPixel calls for a 400x56 band, single-digit milliseconds against a
-    // seventeen-second refresh.
-    const int image_h = c.image ? (int)c.image->h : 0;
-    const int image_y = daily_image_in_slack(L.riddle_top, L.riddle_h,
-                                             block_h, image_h);
-    if (image_y != DL_ABSENT) {
-        static const uint32_t kInk[STRIP_INK_COUNT] = {
-            TFT_BLACK, TFT_WHITE, TFT_RED, TFT_YELLOW, TFT_BLUE, TFT_GREEN,
-        };
-        for (int row = 0; row < image_h; row++) {
-            for (int x = 0; x < STRIP_W; x++) {
-                const uint8_t ink = strip_at(c.image, x, row);
-                if (ink == STRIP_WHITE) continue;   // white is the paper
-                ui_canvas().drawPixel(x, image_y + row, kInk[ink]);
-            }
-        }
-    }
-
-    const int taken = (image_y != DL_ABSENT) ? image_h + 2 * DL_ZONE_GAP : 0;
-    const int slack = L.riddle_h - block_h - taken;
-    int y = L.riddle_top + taken + (slack > 0 ? slack / 2 : 0);
+    const int slack = L.riddle_h - block_h;
+    int y = L.riddle_top + (slack > 0 ? slack / 2 : 0);
 
     if (kicker) {
         he::draw_line_rtl(he::small(), DL_CANVAS_W - DL_MARGIN_X, y, kicker,
@@ -406,7 +402,7 @@ void page_daily_draw(const page_daily_content &c)
         if (why_lines) {
             y += 14;
             y = he::draw_wrapped(m, y, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
-                                 DL_FOLIO_Y, why, 3);
+                                 DL_FOLIO_Y, why, why_lines);
             // The end mark. A filled square closing the story is the oldest
             // piece of newspaper furniture there is.
             if (y > 0)
@@ -415,20 +411,45 @@ void page_daily_draw(const page_daily_content &c)
     } else if (c.has_choices) {
         y += 10;
         for (int i = 0; i < 3; i++) {
-            if (y + DL_LINE_H + 18 > DL_FOLIO_Y - DL_ZONE_GAP) break;
+            if (y + DL_LINE_H + 2 * DL_CHOICE_PAD > L.riddle_top + L.riddle_h) break;
             // A rule above each choice, and one below the last. Ruled lists are
             // how a paper prints options, and the rules also do the job the
             // deleted A/B/C markers were meant to: they turn three lines into
             // three things you can point at.
             ui_canvas().fillRect(DL_MARGIN_X, y, DL_CANVAS_W - 2 * DL_MARGIN_X,
                                  DL_HAIR, TFT_BLACK);
-            y += DL_HAIR + 9;
+            y += DL_HAIR + DL_CHOICE_PAD;
             he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, y,
                               c.choices[i] ? c.choices[i] : "");
-            y += DL_LINE_H + 9;
+            y += DL_LINE_H + DL_CHOICE_PAD;
         }
         ui_canvas().fillRect(DL_MARGIN_X, y, DL_CANVAS_W - 2 * DL_MARGIN_X,
                              DL_HAIR, TFT_BLACK);
+    }
+
+    // THE FACT OF THE DAY. A second thing to read, which is what a front page
+    // has and this one did not: it was a single story plus furniture, and no
+    // amount of rules makes that read as a paper.
+    if (L.fact_y != DL_ABSENT && c.fact && c.fact[0]) {
+        ui_canvas().fillRect(DL_MARGIN_X, L.fact_y, DL_CANVAS_W - 2 * DL_MARGIN_X,
+                             DL_HAIR, TFT_BLACK);
+        int fy = L.fact_y + DL_HAIR + 6;
+        // Small face, so it reads as a brief beside the lead rather than as a
+        // second headline competing with it.
+        const char *p = c.fact;
+        for (int i = 0; i < DL_FACT_LINES && *p; i++) {
+            const int len = he_line_break_face(he::small(), p,
+                                               DL_CANVAS_W - 2 * DL_MARGIN_X);
+            if (len <= 0) break;
+            char buf[128];
+            const int n = len < (int)sizeof buf - 1 ? len : (int)sizeof buf - 1;
+            std::memcpy(buf, p, (size_t)n);
+            buf[n] = '\0';
+            he::draw_line_rtl(he::small(), DL_CANVAS_W - DL_MARGIN_X, fy, buf);
+            fy += 26;
+            p += len;
+            while (*p == ' ') p++;
+        }
     }
 
     draw_folio(c);

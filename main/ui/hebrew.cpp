@@ -185,6 +185,29 @@ void draw_line_rtl_fit(const face &f, int right_x, int left_limit,
     draw_line_rtl(f, right_x, y, s, colour);
 }
 
+int he_line_break_face(const face &f, const char *s, int width)
+{
+    int w = 0;
+    const char *p = s;
+    const char *last_space = nullptr;
+    uint32_t cp;
+    int n;
+    while ((n = he_utf8_next(p, &cp)) > 0) {
+        int adv = 0;
+        if (he_is_letter(cp))            adv = f.width[cp - HE_BASE] + f.gap;
+        else if (cp == ' ')            { adv = f.space; last_space = p; }
+        else if (cp > 0x20 && cp < 0x7F) adv = f.lat;
+        if (w + adv > width) {
+            // Break at the last space, so a word is never split. With no space
+            // to fall back on, break here rather than overrun the margin.
+            return (int)((last_space ? last_space : p) - s);
+        }
+        w += adv;
+        p += n;
+    }
+    return (int)(p - s);
+}
+
 int wrapped_lines(const he_metrics_t *m, int width, const char *text,
                   int max_lines)
 {

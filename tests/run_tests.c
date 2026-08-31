@@ -1131,8 +1131,8 @@ static int test_he_text(void)
 // set is exactly where the awkward combination goes missing.
 static int test_daily_layout(void)
 {
-    daily_flags_t empty = { false, false, false, false };
-    daily_flags_t full  = { true,  true,  true,  true  };
+    daily_flags_t empty = { false, false, false, false, false, 0 };
+    daily_flags_t full  = { true,  true,  true,  true,  false, 0 };
     daily_layout_t Le, Lf;
     daily_layout(&empty, &Le);
     daily_layout(&full,  &Lf);
@@ -1143,6 +1143,8 @@ static int test_daily_layout(void)
         f.weather  = (bits & 2) != 0;
         f.callout  = (bits & 4) != 0;
         f.birthday = (bits & 8) != 0;
+        f.reveal   = false;
+        f.image_h  = 0;
 
         daily_layout_t L;
         daily_layout(&f, &L);
@@ -1176,10 +1178,12 @@ static int test_daily_layout(void)
         if (L.weather_y  != DL_ABSENT) CHECK(L.weather_y  > DL_HDR_RULE_Y);
         if (L.birthday_y != DL_ABSENT) CHECK(L.birthday_y > DL_HDR_RULE_Y);
         if (L.callout_y  != DL_ABSENT) CHECK(L.callout_y  > DL_HDR_RULE_Y);
-        // The riddle zone ends above the folio, not at the page edge. A
-        // printed page ends deliberately; this one used to stop wherever the
-        // last choice fell.
-        CHECK(L.riddle_top + L.riddle_h == DL_FOLIO_Y - DL_ZONE_GAP);
+        // The riddle zone ends above whatever is below it -- the fact when
+        // there is one, the folio otherwise. A printed page ends deliberately;
+        // this one used to stop wherever the last choice fell.
+        const int below = (L.fact_y != DL_ABSENT) ? L.fact_y
+                        : (L.image_y != DL_ABSENT) ? L.image_y : DL_FOLIO_Y;
+        CHECK(L.riddle_top + L.riddle_h == below - DL_ZONE_GAP);
         CHECK(DL_FOLIO_Y + DL_FOLIO_H <= DL_BODY_BOTTOM);
         CHECK(L.riddle_top < DL_CANVAS_H);
 
@@ -1253,7 +1257,7 @@ static int test_daily_layout(void)
     // lines address the reader by name, and two of those on one morning is one
     // too many. It also buys back the 47px that made the crowded day the case
     // nothing else could be fitted into.
-    daily_flags_t both = { true, true, true, true };
+    daily_flags_t both = { true, true, true, true, false, 0 };
     daily_layout_t Lt;
     daily_layout(&both, &Lt);
     CHECK(Lt.birthday_y != DL_ABSENT);
@@ -1264,61 +1268,70 @@ static int test_daily_layout(void)
     CHECK(Lt.riddle_top > Le.riddle_top);
     CHECK(Lt.lead_rule_y > Le.lead_rule_y);
 
-    // ---- today's picture, in the slack -------------------------------------
+    // ---- the second item: a picture OR a fact, never both -------------------
     //
-    // It fills space the riddle block is not using and never takes any. The
-    // old design gave it a zone under the masthead that pushed everything
-    // down; the newspaper masthead and the boxed weather panel then took 49px
-    // between them and left a normal school day 45px of picture. A sliver is
-    // not an illustration, and a feature that stops firing is worse than one
-    // that was never written.
-    daily_flags_t day = { true, true, true, false };
-    daily_layout_t Ld;
-    daily_layout(&day, &Ld);
+    // A front page is many items; this page was one story plus furniture. It
+    // has room for two, so the picture and the fact share one slot and a
+    // published band wins -- somebody chose to make it.
+    daily_flags_t withband = { true, true, true, false, false, 56 };
+    daily_flags_t withfact = { true, true, true, false, false, 0 };
+    daily_layout_t Lband, Lfact;
+    daily_layout(&withband, &Lband);
+    daily_layout(&withfact, &Lfact);
 
-    // A short riddle leaves real slack, and the picture takes it. 56 is what
-    // the generator publishes by default -- the folio took 31px off the zone,
-    // so 90 no longer fits an ordinary weekday and 56 comfortably does.
-    CHECK(daily_image_in_slack(Ld.riddle_top, Ld.riddle_h, 200, 56) != DL_ABSENT);
-    CHECK(daily_image_in_slack(Ld.riddle_top, Ld.riddle_h, 200, 56)
-          == Ld.riddle_top + DL_ZONE_GAP);
-    // And the tallest the format allows does not, on that same day, which is
-    // the self-regulating part: a big band appears only on a light page.
-    CHECK(daily_image_in_slack(Ld.riddle_top, Ld.riddle_h, 200, STRIP_H_MAX) == DL_ABSENT);
+    CHECK(Lband.image_y != DL_ABSENT && Lband.image_h == 56);
+    CHECK(Lband.fact_y == DL_ABSENT);
+    CHECK(Lfact.fact_y != DL_ABSENT);
+    CHECK(Lfact.image_y == DL_ABSENT);
 
-    // A block that fills the zone leaves none, and there is no picture. This
-    // is the case the old design got wrong by reserving space up front.
-    CHECK(daily_image_in_slack(Ld.riddle_top, Ld.riddle_h, Ld.riddle_h, 56) == DL_ABSENT);
+    // Neither runs into the folio, and the riddle clears both.
+    CHECK(Lband.image_y + DL_HAIR + 6 + Lband.image_h <= DL_FOLIO_Y - DL_ZONE_GAP);
+    CHECK(Lfact.fact_y + DL_FACT_H <= DL_FOLIO_Y - DL_ZONE_GAP);
+    CHECK(Lband.riddle_top + Lband.riddle_h <= Lband.image_y - DL_ZONE_GAP);
+    CHECK(Lfact.riddle_top + Lfact.riddle_h <= Lfact.fact_y - DL_ZONE_GAP);
 
-    // The boundary: the picture needs a gap above AND below it, so it fits at
-    // exactly image_h + 2 gaps of slack and not one pixel less.
-    const int need = 56 + 2 * DL_ZONE_GAP;
-    CHECK(daily_image_in_slack(100, 400, 400 - need, 56) != DL_ABSENT);
-    CHECK(daily_image_in_slack(100, 400, 400 - need + 1, 56) == DL_ABSENT);
+    // A taller band costs the riddle more, and never takes it under the floor.
+    for (int hh = 0; hh <= STRIP_H_MAX; hh += 8) {
+        daily_flags_t g = { true, true, true, false, false, hh };
+        daily_layout_t Lg;
+        daily_layout(&g, &Lg);
+        CHECK(Lg.riddle_h >= DL_RIDDLE_MIN_H);
+        if (Lg.image_y != DL_ABSENT)
+            CHECK(Lg.riddle_top + Lg.riddle_h <= Lg.image_y - DL_ZONE_GAP);
+    }
 
-    // No picture asked for, no picture placed -- and a negative height is a
-    // corrupt strip header, not a request.
-    CHECK(daily_image_in_slack(100, 400, 100, 0) == DL_ABSENT);
-    CHECK(daily_image_in_slack(100, 400, 100, -5) == DL_ABSENT);
-    CHECK(daily_image_in_slack(100, 400, 100, 0) == DL_ABSENT);
+    // ---- the fact of the day -----------------------------------------------
+    //
+    // It is the page's second item, and a page only has room for two. A
+    // birthday banner is already one; so is the answer and its reason after
+    // 13:00. On both, the fact yields.
+    daily_flags_t ord = { true, true, true, false, false, 0 };
+    daily_flags_t bd  = { true, true, true, true,  false, 0 };
+    daily_flags_t rev = { true, true, true, false, true,  0 };
+    daily_layout_t Lo, Lb, Lr;
+    daily_layout(&ord, &Lo); daily_layout(&bd, &Lb); daily_layout(&rev, &Lr);
+    CHECK(Lo.fact_y != DL_ABSENT);
+    CHECK(Lb.fact_y == DL_ABSENT);
+    CHECK(Lr.fact_y == DL_ABSENT);
+    // And the zone it costs comes back when it yields.
+    CHECK(Lr.riddle_h > Lo.riddle_h);
+    CHECK(Lo.riddle_top + Lo.riddle_h <= Lo.fact_y - DL_ZONE_GAP);
+    CHECK(Lo.fact_y + DL_FACT_H <= DL_FOLIO_Y - DL_ZONE_GAP);
 
-    // AND IT NEVER PUSHES THE RIDDLE ANYWHERE. Whatever the zones and whatever
-    // the picture, the riddle keeps its floor, because the picture is no
-    // longer part of that arithmetic at all.
+    // THE MORNING BLOCK MUST FIT, on every combination. 225 is a two-line
+    // question plus three ruled choices at DL_CHOICE_PAD; that is the page
+    // this device draws almost every day.
+    const int morning_block = 2 * (HE_H - 6) + 10
+                              + 3 * (DL_HAIR + DL_CHOICE_PAD + DL_LINE_H + DL_CHOICE_PAD)
+                              + DL_HAIR;
     for (int bits = 0; bits < 16; bits++) {
         daily_flags_t g;
         g.schedule = (bits & 1) != 0; g.weather  = (bits & 2) != 0;
         g.callout  = (bits & 4) != 0; g.birthday = (bits & 8) != 0;
+        g.reveal   = false;
         daily_layout_t Lg;
         daily_layout(&g, &Lg);
-        CHECK(Lg.riddle_h >= DL_RIDDLE_MIN_H);
-        for (int hh = 0; hh <= STRIP_H_MAX; hh += 8) {
-            const int iy = daily_image_in_slack(Lg.riddle_top, Lg.riddle_h, 200, hh);
-            if (iy != DL_ABSENT) {
-                CHECK(iy >= Lg.riddle_top);
-                CHECK(iy + hh <= Lg.riddle_top + Lg.riddle_h);
-            }
-        }
+        CHECK(Lg.riddle_h >= morning_block);
     }
 
     // NULL flags behave as the empty page.

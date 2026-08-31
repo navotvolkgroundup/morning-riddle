@@ -60,6 +60,6 @@ bool portal_load_credentials(char *ssid, size_t ssid_len,
 //
 // Blocking on purpose. There is nothing else for the board to do while
 // somebody is typing into it.
-bool portal_run(kids_t *kids, schedule_t *sched, int timeout_ms = 300000);
+bool portal_run(kids_t *kids, kids_schedule_t *sched, int timeout_ms = 300000);
 
 #endif // BOARD_PORTAL_HPP

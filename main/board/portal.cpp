@@ -7,6 +7,7 @@
 
 #include "esp_event.h"
 #include "esp_http_server.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
@@ -33,7 +34,7 @@ constexpr int kSubmitted = BIT0;
 EventGroupHandle_t g_done  = nullptr;
 httpd_handle_t     g_http  = nullptr;
 kids_t            *g_kids  = nullptr;
-schedule_t        *g_sched = nullptr;
+kids_schedule_t   *g_sched = nullptr;
 
 // Sunday first: the Israeli school week starts there, and schedule_t is
 // indexed 0=Sunday to match schedule_weekday(). A form that listed Monday
@@ -127,12 +128,24 @@ void render(char *buf, size_t cap)
         }
     }
 
+    // ONE SECTION PER CHILD. They are in different years, so a single
+    // household timetable was only ever right for a household with one class
+    // in it. Only children who have a name get a section -- seven empty boxes
+    // for a child who does not exist is a form that looks broken.
     if (g_sched) {
-        add("<h2>Timetable</h2><p>Subjects for each day, separated by commas. "
-            "Leave a day blank and nothing draws for it.</p>");
-        for (int d = 0; d < SCHED_DAYS; d++) {
-            esc(g_sched->line[d], v, sizeof v);
-            add("<label>%s</label><input name=d%d value=\"%s\">", kDayName[d], d, v);
+        add("<h2>Timetables</h2><p>Subjects for each day, separated by commas. "
+            "Leave a day blank and nothing draws for it. Each child sees their "
+            "own timetable on the morning the board names them.</p>");
+        for (int k = 0; k < KIDS_MAX; k++) {
+            const bool named = g_kids && k < g_kids->count && g_kids->kid[k].name[0];
+            if (!named) continue;
+            esc(g_kids->kid[k].name, v, sizeof v);
+            add("<h3>%s</h3>", v);
+            for (int d = 0; d < SCHED_DAYS; d++) {
+                esc(g_sched->kid[k].line[d], v, sizeof v);
+                add("<label>%s</label><input name=s%dd%d value=\"%s\">",
+                    kDayName[d], k, d, v);
+            }
         }
     }
 
@@ -145,13 +158,25 @@ constexpr const char *kSaved =
     "<body style='font-family:system-ui,sans-serif;margin:2rem'>"
     "<h1>Saved</h1><p>You can close this page. The board redraws in a moment.</p>";
 
-// 12KB. Worst case is seven timetable lines of SCHED_LINE_MAX bytes plus four
-// names, all HTML-escaped; static because a handler task's stack is 4KB.
-char g_page[12288];
+// 40KB, IN PSRAM, and claimed only while the portal is up.
+//
+// Worst case is four children times seven timetable lines of SCHED_LINE_MAX
+// bytes, all HTML-escaped (which can triple a byte), plus the names and the
+// WiFi fields. 12KB was sized for one household timetable and would have
+// silently truncated the form partway through the third child.
+//
+// As a static it overflowed dram0_0_seg by 10688 bytes -- there is not 40KB of
+// internal DRAM to spare on a board running WiFi and an HTTP server. This is
+// the same lesson the canvas taught: there are 8MB of PSRAM and a buffer this
+// size has no business in the 512KB. Allocated in portal_run and freed on the
+// way out, because the portal runs for five minutes once and the page path
+// should not carry its cost all day.
+#define PORTAL_PAGE_BYTES 40960
+char *g_page = nullptr;
 
 esp_err_t get_root(httpd_req_t *r)
 {
-    render(g_page, sizeof g_page);
+    render(g_page, PORTAL_PAGE_BYTES);
     httpd_resp_set_type(r, "text/html");
     return httpd_resp_send(r, g_page, HTTPD_RESP_USE_STRLEN);
 }
@@ -233,20 +258,25 @@ esp_err_t post_save(httpd_req_t *r)
     //
     // Stored verbatim: schedule_t holds each day pre-joined, and comma-space
     // is exactly what the form asks for. No parse, no serialise.
+    // ONE TIMETABLE PER CHILD. Field names are s<kid>d<day>, so the anchored
+    // matching in form_field keeps s0d1 from matching inside s10d1 -- the same
+    // class of bug that once let d1 match inside k0d1.
     if (g_sched) {
-        schedule_t sc = {};
-        for (int d = 0; d < SCHED_DAYS; d++) {
-            char key[4];
-            std::snprintf(key, sizeof key, "d%d", d);
-            const bool found = form_field(g_body, key, sc.line[d], sizeof sc.line[d]);
-            ESP_LOGW(TAG, "  %s (%s): %s, %d bytes \"%s\"", kDayName[d], key,
-                     found ? "found" : "ABSENT", (int)std::strlen(sc.line[d]),
-                     sc.line[d]);
+        kids_schedule_t all = {};
+        for (int k = 0; k < KIDS_MAX; k++) {
+            for (int d = 0; d < SCHED_DAYS; d++) {
+                char key[8];
+                std::snprintf(key, sizeof key, "s%dd%d", k, d);
+                char *dst = all.kid[k].line[d];
+                const bool found = form_field(g_body, key, dst, SCHED_LINE_MAX);
+                if (found && dst[0])
+                    ESP_LOGW(TAG, "  kid %d %s (%s): %d bytes \"%s\"", k,
+                             kDayName[d], key, (int)std::strlen(dst), dst);
+            }
         }
-        *g_sched = sc;
-        sdconfig_store_schedule(&sc);
-        ESP_LOGI(TAG, "stored a timetable (%s)",
-                 schedule_is_empty(&sc) ? "empty" : "present");
+        *g_sched = all;
+        sdconfig_store_schedule(&all);
+        ESP_LOGI(TAG, "stored timetables for up to %d children", KIDS_MAX);
     }
 
     std::memset(g_body, 0, sizeof g_body);      // the password was in here
@@ -318,8 +348,16 @@ bool portal_have_credentials()
     return portal_load_credentials(s, sizeof s, p, sizeof p);
 }
 
-bool portal_run(kids_t *kids, schedule_t *sched, int timeout_ms)
+bool portal_run(kids_t *kids, kids_schedule_t *sched, int timeout_ms)
 {
+    // The form buffer, in PSRAM, for as long as the portal is up.
+    g_page = (char *)heap_caps_malloc(PORTAL_PAGE_BYTES, MALLOC_CAP_SPIRAM);
+    if (!g_page) {
+        ESP_LOGE(TAG, "no PSRAM for the %d-byte form; not opening the portal",
+                 PORTAL_PAGE_BYTES);
+        return portal_have_credentials();
+    }
+
     ESP_LOGW(TAG, "starting setup AP \"%s\" -- join it and open 192.168.4.1",
              PORTAL_AP_SSID);
 
@@ -374,6 +412,7 @@ bool portal_run(kids_t *kids, schedule_t *sched, int timeout_ms)
     esp_wifi_set_mode(WIFI_MODE_STA);   // leave the radio ready for a join
 
     g_kids = nullptr; g_sched = nullptr;
+    heap_caps_free(g_page); g_page = nullptr;
 
     // Credentials, not "was submitted": a visit that only fixed a subject line
     // leaves the network exactly as it was, and the caller must not read that

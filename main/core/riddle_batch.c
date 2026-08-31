@@ -64,6 +64,7 @@ int riddle_batch_parse(const char *json, riddle_batch_t *out)
         }
         take_str(it, "by", r.by, sizeof r.by, false);
         take_str(it, "why", r.why, sizeof r.why, false);
+        take_str(it, "fact", r.fact, sizeof r.fact, false);
 
         const cJSON *ch = cJSON_GetObjectItemCaseSensitive(it, "choices");
         if (cJSON_IsArray(ch) && cJSON_GetArraySize(ch) == 3) {

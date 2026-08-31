@@ -44,7 +44,7 @@ struct page_daily_content {
     uint32_t        issue;          // mornings published; hidden below 2
     int             turn_kid;       // whose turn today, or -1
     uint32_t        turn_streak;    // that kid's consecutive turns; hidden below 2
-    const schedule_t *sched;        // may be null
+    const schedule_t *sched;        // the TURN kid's timetable; may be null
     const weather_t  *wx;           // may be null; stale is still shown
     const kids_t     *kids;         // may be null
     int32_t         today;          // civil day number, for schedule + callout
@@ -66,6 +66,10 @@ struct page_daily_content {
     // reveal exactly as it did before. It is the difference between a riddle
     // that teaches something and a quiz a child got wrong.
     const char     *why;
+
+    // The fact of the day. Drawn on an ordinary morning only -- a birthday and
+    // the afternoon reveal each already have a second item.
+    const char     *fact;
 
     // Today's picture, or null. The layout declines it on days that cannot
     // afford the height; see daily_layout.c.

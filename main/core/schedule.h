@@ -45,6 +45,26 @@ typedef struct {
     char line[SCHED_DAYS][SCHED_LINE_MAX];
 } schedule_t;
 
+// ONE TIMETABLE PER CHILD, because they are in different years.
+//
+// There was a single schedule_t for the household, which is only correct when
+// every child is in one class. They are not: one is in ו1 and one in ג2, and
+// showing a sixth-year timetable to an eight-year-old is worse than showing
+// none -- it is confidently wrong, which is the failure this project keeps
+// coming back to.
+//
+// The page draws the timetable belonging to whoever the rotation named that
+// morning, which is also what makes the turn line mean something: the page is
+// addressed to one child and carries that child's day.
+//
+// Indexed by the same kid index kids_turn_today() returns. 3.5KB in NVS, which
+// is a separate key from the names so a bad import of one cannot lose the
+// other.
+typedef struct {
+    schedule_t kid[4];          // KIDS_MAX, not included here to keep this
+                                // header free of kids.h
+} kids_schedule_t;
+
 // Weekday for a civil day number, 0 = Sunday .. 6 = Saturday.
 //
 // 1970-01-01 was a THURSDAY, so the offset is 4. Verified against real dates

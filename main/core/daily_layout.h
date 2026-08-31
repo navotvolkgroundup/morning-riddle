@@ -71,20 +71,51 @@ extern "C" {
 #define DL_FOLIO_H      24
 #define DL_FOLIO_Y      (DL_BODY_BOTTOM - DL_FOLIO_H)
 
+// THE FACT OF THE DAY, in the small face, above the folio.
+//
+// A second thing to read. A front page is many items and this one was a single
+// story plus furniture, which is the real reason it did not read as a paper
+// however many rules were drawn on it. Two small lines is 52px plus a hairline
+// and its gaps.
+//
+// It costs the riddle zone 60px, and that is why the choice rows are tight:
+// at the old 9px padding the block did not fit at all. It is also what killed
+// the variable headline -- a daily fact and a 25%-of-mornings headline wanted
+// the same pixels, and the fact is daily.
+#define DL_FACT_LINES    2
+#define DL_FACT_H        (DL_HAIR + 6 + DL_FACT_LINES * 26)
+#define DL_FACT_Y        (DL_FOLIO_Y - DL_ZONE_GAP - DL_FACT_H)
+
 #define DL_WXBOX_W     126
-#define DL_WXBOX_H     104
-#define DL_SCHED_LINES   2
+// 105, not 104, and the odd number is deliberate: it is exactly three timetable
+// lines (3 x 35). The band is then the same height whether the weather panel is
+// there or not, which keeps the page's shape steady and stops a no-weather day
+// from ending up ONE PIXEL taller than a full one -- which it was, and which
+// broke the invariant that the fullest page starts its riddle lowest.
+#define DL_WXBOX_H     105
+// Three, not two. Seven of the twelve real timetable lines elided at two --
+// a sixth-year Monday is 605px against 468 of capacity. Three lines is 702px
+// and costs nothing: 3 x 35 is 105, and the weather panel beside it is 104.
+#define DL_SCHED_LINES   3
+
+// TIGHT CHOICE ROWS, and they are what make the fact fit at all.
+//
+// At 9px the three rows were 191px of a 301px zone and the block did not fit
+// once the fact took its 60. At 3px they are 144, the block is 225, and there
+// is room for a second thing to read -- which is the difference between a
+// front page and a form. The rows are still 41px of text in a 48px row.
+#define DL_CHOICE_PAD    3
 
 // THE FLOOR GUARDS THE COMMON CASE, NOT THE WORST ONE, and it always did.
 //
-// A two-line question at reading size plus three ruled choices is 261. A
-// FIVE-line question plus the same choices is 366, which no floor on a 600px
-// panel was ever going to guarantee -- the wrapper caps at five lines and the
+// A two-line question plus three ruled choices at DL_CHOICE_PAD is 225. A
+// FIVE-line question plus the same is 330, which no floor on a 600px panel was
+// ever going to guarantee -- the wrapper caps at five lines and the
 // generator's validator is what actually keeps questions short.
 //
-// So this is the two-line case with headroom, and the folio's 31px comes out
-// of it: 272 leaves the same 11px margin over 261 that 280 left over 274.
-#define DL_RIDDLE_MIN_H 272
+// It came down from 272 as the folio and then the fact took their zones. Both
+// are drawn every morning, so the space genuinely is not the riddle's.
+#define DL_RIDDLE_MIN_H 224
 
 // ZERO, AND THE HEADER ALREADY SAID THIS WAS A CONSTANT CHANGE IF WRONG.
 //
@@ -108,6 +139,16 @@ typedef struct {
     bool weather;       // a cached reading exists, stale or not
     bool callout;       // whose turn it is; every day there are kids
     bool birthday;      // rare; a banner, not a takeover
+
+    // THE AFTERNOON EDITION HAS NO FACT. The answer and its reason are the
+    // story after 13:00, and they need 296px where the morning block needs
+    // 225 -- there is no room for a second item and no reason to want one.
+    bool reveal;
+
+    // Today's picture, 0 for none. THE PICTURE AND THE FACT ARE THE SAME SLOT:
+    // both are the page's second item, and a page with room for two items does
+    // not get three. A published band wins, because someone chose to make it.
+    int  image_h;
 } daily_flags_t;
 
 typedef struct {
@@ -117,6 +158,9 @@ typedef struct {
     int birthday_label_y;   // "birthday" in small; DL_ABSENT with birthday_y
     int birthday_y;         // the name, in body
     int callout_y;
+    int fact_y;             // the fact of the day, or DL_ABSENT
+    int image_y;            // today's band, or DL_ABSENT. Never both.
+    int image_h;
     int lead_rule_y;        // rule above the lead; always placed
     int riddle_top;         // first y the riddle may use
     int riddle_h;           // riddle_top .. DL_BODY_BOTTOM
@@ -140,9 +184,8 @@ void daily_layout(const daily_flags_t *f, daily_layout_t *out);
 // is no picture, which is the right answer twice: a five-line riddle is
 // already the interesting thing on the page.
 //
-// `block_h` is the measured height of the question, choices or answer -- the
-// caller knows it, the layout cannot.
-int daily_image_in_slack(int riddle_top, int riddle_h, int block_h, int image_h);
+// (daily_image_in_slack is gone: the picture has a reserved slot now, shared
+// with the fact, so it no longer has to scavenge whatever the riddle left.)
 
 #ifdef __cplusplus
 }

@@ -264,8 +264,8 @@ extern "C" void app_main(void)
     // only reached when credentials were missing, so a board configured
     // through the portal never touched its card at all.
     static kids_t     kids;
-    static schedule_t sched;
-    sdconfig_load(&kids, &sched);
+    static kids_schedule_t scheds;
+    sdconfig_load(&kids, &scheds);
 
 
     static weather_t wx;
@@ -336,7 +336,7 @@ extern "C" void app_main(void)
 
         // kids and sched are updated in place, so the page below draws what
         // was just typed rather than what was loaded a moment ago.
-        portal_run(&kids, &sched);
+        portal_run(&kids, &scheds);
     }
 
     // Network first, so the clock below is the real one. All three steps are
@@ -363,7 +363,7 @@ extern "C" void app_main(void)
             ui_canvas_push();   // queued, not synchronous
             panel_overwritten = true;
 
-            if (portal_run(&kids, &sched)) {
+            if (portal_run(&kids, &scheds)) {
                 // Straight back round: the credentials are in NVS now.
                 if (net_connect()) { net_sync_time(); net_stop(); }
             }
@@ -514,7 +514,11 @@ extern "C" void app_main(void)
     c.turn_kid   = in.whose_turn;
     c.turn_streak = (in.whose_turn >= 0 && in.whose_turn < KIDS_MAX)
                         ? st.kid_streak[in.whose_turn] : 0;
-    c.sched      = &sched;
+    // THE TURN CHILD'S TIMETABLE, not the household's. They are in different
+    // years; a sixth-year timetable shown to an eight-year-old is confidently
+    // wrong, which is worse than showing none.
+    c.sched      = (in.whose_turn >= 0 && in.whose_turn < KIDS_MAX)
+                       ? &scheds.kid[in.whose_turn] : nullptr;
     c.wx         = (wx.fetched_at != 0) ? &wx : nullptr;
     c.kids       = (kids.count > 0) ? &kids : nullptr;
     c.today      = in.today;
@@ -533,6 +537,7 @@ extern "C" void app_main(void)
         c.has_choices = r.has_choices;
         c.answer      = r.a;
         c.why         = r.why;
+        c.fact        = r.fact;
         c.kind        = r.kind;
         // THE STATE SAYS WHAT IS ON THE PAGE; THE ACTION ONLY SAYS WHETHER TO
         // REDRAW IT. This read the action, which is the same thing right up
@@ -559,7 +564,7 @@ extern "C" void app_main(void)
     // timetable come from the setup page and the state machine knows nothing
     // about them, so a config edit used to change nothing until the next
     // scheduled wake. A changed fingerprint forces one redraw of its own.
-    const uint32_t cfg_fp = state_config_fingerprint(&kids, &sched);
+    const uint32_t cfg_fp = state_config_fingerprint(&kids, &scheds);
     const bool cfg_changed = (cfg_fp != state_drawn_config());
     const bool will_draw   = (act != ACT_NONE) || cfg_changed || panel_overwritten;
 
