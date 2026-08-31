@@ -78,6 +78,15 @@ extern "C" void app_main(void)
     ESP_LOGW(TAG, "M5.begin took %lld ms (clear_display=false)",
              (long long)((esp_timer_get_time() - t_begin) / 1000));
 
+    // TOUCH THE CANVAS NOW, before the radio. It is 240KB and it used to come
+    // out of internal DMA RAM, so whether it existed depended on what else had
+    // allocated first -- and the first call is wherever drawing happens, which
+    // is after WiFi, NTP and two fetches. It is in PSRAM now, but claiming it
+    // here still means a failure is one line into the log instead of fifteen
+    // seconds in, on the boot where it matters.
+    (void)ui_canvas_ready();
+    ui_canvas();
+
     // THE UPDATE MODE, SET EXPLICITLY. M5Stack's own firmware does this on the
     // line after M5.begin() (hal.cpp:173) and we never did.
     //
