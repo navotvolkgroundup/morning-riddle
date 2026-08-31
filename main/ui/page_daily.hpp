@@ -18,6 +18,12 @@ extern "C" {
 #include "daily_layout.h"
 #include "kids.h"
 #include "masthead.h"
+
+// Diagnostic build switch: draw the sixteen-step grey ramp instead of the
+// page, to measure which level produces which ink. See ui/calibrate.hpp.
+#ifndef PD_CALIBRATE
+#define PD_CALIBRATE 0
+#endif
 #include "riddle_batch.h"
 #include "strip.h"
 #include "schedule.h"

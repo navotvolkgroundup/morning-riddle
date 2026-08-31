@@ -22,6 +22,7 @@ extern "C" {
 #include "hebrew.hpp"
 #include "gfx_target.hpp"
 #include "page_daily.hpp"
+#include "calibrate.hpp"
 #include "wake.hpp"
 #include "feedback.hpp"
 #include "state.hpp"
@@ -548,7 +549,15 @@ extern "C" void app_main(void)
         ESP_LOGI(TAG, "nothing to redraw; leaving the panel alone");
 
     const int64_t t_draw = esp_timer_get_time();
+#if PD_CALIBRATE
+    // Diagnostic build: sixteen grey levels instead of a page. See
+    // ui/calibrate.hpp -- the panel is greyscale through this driver and its
+    // colours are whichever pigment a level lands on, which has to be
+    // measured rather than named.
+    calibrate_draw();
+#else
     if (will_draw) page_daily_draw(c);
+#endif
     const int64_t push_ms = (esp_timer_get_time() - t_draw) / 1000;
 
     // display() QUEUES; waitDisplay() IS THE REFRESH.

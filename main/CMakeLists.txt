@@ -14,6 +14,7 @@ idf_component_register(
         "core/strip.c"
         "ui/hebrew.cpp"
         "ui/page_daily.cpp"
+        "ui/calibrate.cpp"
         "ui/gfx_target.cpp"
         "board/wake.cpp"
         "board/feedback.cpp"
