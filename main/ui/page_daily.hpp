@@ -17,6 +17,7 @@
 extern "C" {
 #include "daily_layout.h"
 #include "kids.h"
+#include "riddle_batch.h"
 #include "schedule.h"
 #include "weather.h"
 }
@@ -31,7 +32,9 @@ extern "C" {
 
 struct page_daily_content {
     const char     *date;           // short date, ASCII, e.g. "27/08"
-    uint32_t        streak;         // days; hidden below 2
+    uint32_t        issue;          // mornings published; hidden below 2
+    int             turn_kid;       // whose turn today, or -1
+    uint32_t        turn_streak;    // that kid's consecutive turns; hidden below 2
     const schedule_t *sched;        // may be null
     const weather_t  *wx;           // may be null; stale is still shown
     const kids_t     *kids;         // may be null
@@ -49,6 +52,15 @@ struct page_daily_content {
     // refuse.
     const char     *answer;
     bool            show_answer;
+
+    // Why the answer is the answer. Optional; an empty or null `why` draws the
+    // reveal exactly as it did before. It is the difference between a riddle
+    // that teaches something and a quiz a child got wrong.
+    const char     *why;
+
+    // What kind of thing today is (riddle_kind_e). Draws a small standing head
+    // above the lead so a joke is not read as a riddle nobody can solve.
+    uint8_t         kind;
 };
 
 // Draws the complete page into the framebuffer and pushes it once.

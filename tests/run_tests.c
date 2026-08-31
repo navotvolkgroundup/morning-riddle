@@ -109,11 +109,16 @@ static int test_schedule(void)
 }
 
 // --------------------------------------------------------- state machine ---
+// Zeroed, then filled: riddle_input_t has grown fields (the rotation, the
+// weekend flags) that every existing test must leave neutral rather than
+// uninitialised, or the state machine reads stack garbage as "kid 87's turn".
 static riddle_input_t IN(int reason, int32_t today, int guess, uint16_t n)
 {
     riddle_input_t in;
+    memset(&in, 0, sizeof in);
     in.reason = (uint8_t)reason; in.today = today;
     in.guess = (int8_t)guess;    in.batch_n = n;
+    in.whose_turn = -1;          // no kids configured: no per-kid streak kept
     return in;
 }
 
@@ -124,8 +129,8 @@ static int test_state(void)
     st.state = RS_IDLE; st.guess = RIDDLE_NO_GUESS;
 
     // First morning shows riddle 0, not 1.
-    CHECK(riddle_decide(&(riddle_input_t){WAKE_MORNING, RIDDLE_NO_GUESS, 30, 100},
-                        &st) == ACT_SHOW_QUESTION);
+    riddle_input_t first = IN(WAKE_MORNING, 100, RIDDLE_NO_GUESS, 30);
+    CHECK(riddle_decide(&first, &st) == ACT_SHOW_QUESTION);
     CHECK(st.idx == 0 && st.state == RS_QUESTION_SHOWN && st.day == 100);
 
     // A second 06:30 on the same day redraws without consuming a riddle.
@@ -256,6 +261,121 @@ static wake_rec_t REC(uint32_t when, uint8_t outcome, uint8_t flags)
     return r;
 }
 
+static int test_issue_and_turns(void)
+{
+    riddle_nvs_t st;
+    memset(&st, 0, sizeof st);
+    st.state = RS_IDLE; st.guess = RIDDLE_NO_GUESS;
+
+    // THE ISSUE NUMBER ONLY EVER GOES UP. It printed the household streak for
+    // one build, and a paper's issue number does not reset because nobody read
+    // yesterday's. Three mornings with no guesses at all: streak stays 0, issue
+    // reaches 3.
+    for (int32_t d = 100; d < 103; d++) {
+        riddle_input_t in = IN(WAKE_MORNING, d, RIDDLE_NO_GUESS, 30);
+        CHECK(riddle_decide(&in, &st) == ACT_SHOW_QUESTION);
+    }
+    CHECK(st.issue == 3);
+    CHECK(st.streak == 0);
+
+    // A second wake on the same day must not print a second issue.
+    riddle_input_t twice = IN(WAKE_MORNING, 102, RIDDLE_NO_GUESS, 30);
+    CHECK(riddle_decide(&twice, &st) == ACT_SHOW_QUESTION);
+    CHECK(st.issue == 3);
+
+    // ---- per-kid streaks, counted in TURNS ---------------------------------
+    memset(&st, 0, sizeof st);
+    st.state = RS_IDLE; st.guess = RIDDLE_NO_GUESS;
+
+    // Two kids, so kid 0's turns are the even days. Play four of them in a row.
+    for (int32_t d = 200; d <= 206; d += 2) {
+        riddle_input_t m = IN(WAKE_MORNING, d, RIDDLE_NO_GUESS, 30);
+        m.whose_turn = 0; m.kids_n = 2;
+        CHECK(riddle_decide(&m, &st) == ACT_SHOW_QUESTION);
+        riddle_input_t g = IN(WAKE_GUESS, d, 1, 30);
+        g.whose_turn = 0; g.kids_n = 2;
+        CHECK(riddle_decide(&g, &st) == ACT_SHOW_RESULT);
+    }
+    CHECK(st.kid_streak[0] == 4);
+    CHECK(st.kid_streak[1] == 0);            // never had a turn taken
+
+    // COUNTED IN TURNS, NOT DAYS, and this is the assertion that catches it:
+    // kid 0's turns are two days apart, so a rule that checked `today - 1`
+    // would have reset this streak on every single one of those mornings.
+    CHECK(st.kid_last[0] == 206);
+
+    // Skip kid 0's next turn (208), then play the one after (210). The run
+    // breaks and restarts at 1.
+    riddle_input_t skip = IN(WAKE_MORNING, 208, RIDDLE_NO_GUESS, 30);
+    skip.whose_turn = 0; skip.kids_n = 2;
+    riddle_decide(&skip, &st);
+    CHECK(st.kid_streak[0] == 4);            // not yet reset: 206 was the last turn
+    riddle_input_t after = IN(WAKE_MORNING, 210, RIDDLE_NO_GUESS, 30);
+    after.whose_turn = 0; after.kids_n = 2;
+    riddle_decide(&after, &st);
+    CHECK(st.kid_streak[0] == 0);            // 208 went untaken; the run is over
+    riddle_input_t g2 = IN(WAKE_GUESS, 210, 0, 30);
+    g2.whose_turn = 0; g2.kids_n = 2;
+    CHECK(riddle_decide(&g2, &st) == ACT_SHOW_RESULT);
+    CHECK(st.kid_streak[0] == 1);
+
+    // No kids configured is the normal unconfigured state. whose_turn is -1
+    // and nothing may index off the front of the arrays.
+    memset(&st, 0, sizeof st);
+    st.state = RS_IDLE; st.guess = RIDDLE_NO_GUESS;
+    riddle_input_t nokids = IN(WAKE_MORNING, 300, RIDDLE_NO_GUESS, 30);
+    CHECK(riddle_decide(&nokids, &st) == ACT_SHOW_QUESTION);
+    riddle_input_t ng = IN(WAKE_GUESS, 300, 0, 30);
+    CHECK(riddle_decide(&ng, &st) == ACT_SHOW_RESULT);
+    for (int i = 0; i < KIDS_MAX; i++) CHECK(st.kid_streak[i] == 0);
+    CHECK(st.streak == 1);                   // the household streak still runs
+    return 0;
+}
+
+static int test_weekend_selection(void)
+{
+    // Six items: even indices are weekday, odd are weekend.
+    bool wk[6];
+    for (int i = 0; i < 6; i++) wk[i] = (i % 2) != 0;
+
+    riddle_nvs_t st;
+    memset(&st, 0, sizeof st);
+    st.state = RS_IDLE; st.guess = RIDDLE_NO_GUESS;
+
+    // A weekday morning lands on a weekday item.
+    riddle_input_t d1 = IN(WAKE_MORNING, 100, RIDDLE_NO_GUESS, 6);
+    d1.weekend = wk; d1.want_weekend = false;
+    CHECK(riddle_decide(&d1, &st) == ACT_SHOW_QUESTION);
+    CHECK(wk[st.idx] == false);
+
+    // Saturday asks for a weekend item and gets one, without rewinding.
+    riddle_input_t d2 = IN(WAKE_MORNING, 101, RIDDLE_NO_GUESS, 6);
+    d2.weekend = wk; d2.want_weekend = true;
+    CHECK(riddle_decide(&d2, &st) == ACT_SHOW_QUESTION);
+    CHECK(wk[st.idx] == true);
+
+    // A BATCH WITH NOTHING MATCHING MUST NOT SPIN OR BLANK THE WALL. All six
+    // weekday, asked for a weekend one: it lands on something, because a
+    // weekday riddle on a Saturday is a mild disappointment and a blank panel
+    // reads as a broken device.
+    bool all_weekday[6] = {false, false, false, false, false, false};
+    riddle_input_t d3 = IN(WAKE_MORNING, 102, RIDDLE_NO_GUESS, 6);
+    d3.weekend = all_weekday; d3.want_weekend = true;
+    CHECK(riddle_decide(&d3, &st) == ACT_SHOW_QUESTION);
+    CHECK(st.idx < 6);
+
+    // No flags at all behaves exactly as it did before weekends existed.
+    memset(&st, 0, sizeof st);
+    st.state = RS_IDLE; st.guess = RIDDLE_NO_GUESS;
+    riddle_input_t plain = IN(WAKE_MORNING, 100, RIDDLE_NO_GUESS, 6);
+    CHECK(riddle_decide(&plain, &st) == ACT_SHOW_QUESTION);
+    CHECK(st.idx == 0);
+    riddle_input_t plain2 = IN(WAKE_MORNING, 101, RIDDLE_NO_GUESS, 6);
+    CHECK(riddle_decide(&plain2, &st) == ACT_SHOW_QUESTION);
+    CHECK(st.idx == 1);
+    return 0;
+}
+
 static int test_wake_ring(void)
 {
     wake_ring_t ring;
@@ -364,9 +484,9 @@ static int test_kids_empty(void)
     memset(&k, 0, sizeof k);
     CHECK(kids_valid(&k));                       // empty is legal, not corrupt
     CHECK(kids_birthday_on(&k, 3, 14) == -1);
-    for (int32_t d = 0; d < 100; d++) CHECK(kids_pick_callout(&k, d) == -1);
+    for (int32_t d = 0; d < 100; d++) CHECK(kids_turn_today(&k, d) == -1);
     CHECK(kids_birthday_on(NULL, 3, 14) == -1);
-    CHECK(kids_pick_callout(NULL, 5) == -1);
+    CHECK(kids_turn_today(NULL, 5) == -1);
     return 0;
 }
 
@@ -399,43 +519,60 @@ static int test_kids_birthday(void)
     return 0;
 }
 
-static int test_kids_callout(void)
+static int test_kids_turn(void)
 {
     kids_t k = KIDS(2);
 
     // Deterministic per day. The morning draw, an early reveal and the 13:00
     // draw are three separate calls on one day; if they disagreed, the screen
-    // would greet a different kid each time.
+    // would greet a different kid each time -- and, now that a guess is
+    // credited to whoever the page named, would credit the wrong child.
     for (int32_t d = 0; d < 500; d++)
-        CHECK(kids_pick_callout(&k, d) == kids_pick_callout(&k, d));
+        CHECK(kids_turn_today(&k, d) == kids_turn_today(&k, d));
 
-    // Fires sometimes, not always, and never names a kid who does not exist.
-    int fired = 0;
+    // EVERY day names somebody, and only somebody who exists. This is the
+    // whole change from the old hash-and-skip callout: a rotation, not a
+    // lottery, so no child goes a week without the wall saying their name.
     for (int32_t d = 0; d < 600; d++) {
-        int i = kids_pick_callout(&k, d);
-        CHECK(i >= -1 && i < k.count);
-        if (i >= 0) fired++;
+        const int i = kids_turn_today(&k, d);
+        CHECK(i >= 0 && i < k.count);
     }
-    CHECK(fired > 0 && fired < 600);
 
-    // Roughly one day in KIDS_CALLOUT_ONE_IN. Loose bounds on purpose: this
-    // asserts "a small surprise, not furniture", not an exact distribution.
-    CHECK(fired > 600 / (KIDS_CALLOUT_ONE_IN * 2));
-    CHECK(fired < 600 / KIDS_CALLOUT_ONE_IN * 2);
+    // Strict rotation, and it comes round every kids_turn_period() days.
+    CHECK(kids_turn_period(&k) == 2);
+    for (int32_t d = 0; d < 200; d++)
+        CHECK(kids_turn_today(&k, d) == kids_turn_today(&k, d + kids_turn_period(&k)));
 
-    // Both kids get picked over time; it must not lock onto one.
+    // Even shares over any whole number of cycles.
     int seen[KIDS_MAX] = {0};
-    for (int32_t d = 0; d < 600; d++) {
-        int i = kids_pick_callout(&k, d);
-        if (i >= 0) seen[i]++;
-    }
-    CHECK(seen[0] > 0 && seen[1] > 0);
+    for (int32_t d = 0; d < 600; d++) seen[kids_turn_today(&k, d)]++;
+    CHECK(seen[0] == 300 && seen[1] == 300);
 
-    // One kid: still valid, always index 0 when it fires.
+    // FOUR KIDS AND A SEVEN-DAY WEEK ARE COPRIME, which is the reason strict
+    // rotation is acceptable here at all: nobody is permanently stuck with
+    // Mondays. Over four weeks each kid must see every weekday.
+    kids_t four = KIDS(4);
+    int wd_seen[4][7] = {{0}};
+    for (int32_t d = 0; d < 28; d++) wd_seen[kids_turn_today(&four, d)][d % 7]++;
+    for (int i = 0; i < 4; i++)
+        for (int w = 0; w < 7; w++) CHECK(wd_seen[i][w] == 1);
+
+    // One kid: always index 0, never -1.
     kids_t solo = KIDS(1);
-    for (int32_t d = 0; d < 200; d++) {
-        int i = kids_pick_callout(&solo, d);
-        CHECK(i == -1 || i == 0);
+    for (int32_t d = 0; d < 200; d++) CHECK(kids_turn_today(&solo, d) == 0);
+
+    // No kids at all is the normal unconfigured state, and must not index.
+    kids_t none;
+    memset(&none, 0, sizeof none);
+    CHECK(kids_turn_today(&none, 5) == -1);
+    CHECK(kids_turn_period(&none) == 0);
+    CHECK(kids_turn_today(NULL, 5) == -1);
+
+    // A negative civil day would index off the front of the array with C's
+    // truncating %, so the floor-modulo is load-bearing, not decoration.
+    for (int32_t d = -50; d < 0; d++) {
+        const int i = kids_turn_today(&k, d);
+        CHECK(i >= 0 && i < k.count);
     }
     return 0;
 }
@@ -574,6 +711,31 @@ static int test_weather_advice(void)
     w.temp_x10 = 330; w.hi_x10 = 320; CHECK(strcmp(weather_advice_he(&w), ADV_TSHIRT) == 0);
 
     CHECK(weather_advice_he(NULL)[0] == '\0');
+
+    // THE TONE AND THE WORDS MUST NOT DRIFT. Every branch in
+    // weather_advice_he() has one in weather_advice_tone(), and this walks the
+    // same boundaries so a change to one that is not made to the other fails
+    // here rather than on the wall as a blue heat warning.
+    w.wmo = 0;
+    w.temp_x10 =  99; w.hi_x10 = 0; CHECK(weather_advice_tone(&w) == WX_TONE_COLD);
+    w.temp_x10 = 149;               CHECK(weather_advice_tone(&w) == WX_TONE_COLD);
+    w.temp_x10 = 150;               CHECK(weather_advice_tone(&w) == WX_TONE_PLAIN);
+    w.temp_x10 = 239;               CHECK(weather_advice_tone(&w) == WX_TONE_PLAIN);
+    w.temp_x10 = 240;               CHECK(weather_advice_tone(&w) == WX_TONE_PLAIN);
+    w.temp_x10 = 280; w.hi_x10 = 340; CHECK(weather_advice_tone(&w) == WX_TONE_HOT);
+    w.temp_x10 = 280; w.hi_x10 = 299; CHECK(weather_advice_tone(&w) == WX_TONE_PLAIN);
+    w.temp_x10 = 280; w.hi_x10 =   0; CHECK(weather_advice_tone(&w) == WX_TONE_PLAIN);
+    w.temp_x10 = 260; w.hi_x10 = 0;
+    w.wmo = 61; CHECK(weather_advice_tone(&w) == WX_TONE_WET);
+    w.wmo = 95; CHECK(weather_advice_tone(&w) == WX_TONE_WET);
+    w.wmo = 73; CHECK(weather_advice_tone(&w) == WX_TONE_COLD);   // snow is cold, not wet
+    CHECK(weather_advice_tone(NULL) == WX_TONE_PLAIN);
+
+    // Precipitation outranks temperature in BOTH, and the pairing is what
+    // matters: an umbrella must never be drawn in the hat-and-water colour.
+    w.temp_x10 = 330; w.hi_x10 = 350; w.wmo = 61;
+    CHECK(strcmp(weather_advice_he(&w), ADV_UMBRELLA) == 0);
+    CHECK(weather_advice_tone(&w) == WX_TONE_WET);
 
     // EVERY STRING MUST FIT THE LINE IT SHARES WITH THE TEMPERATURE.
     //
@@ -760,13 +922,34 @@ static int test_riddle_batch(void)
         "{\"riddles\":[{\"q\":\"Q\",\"a\":\"x\",\"choices\":[\"x\",\"\",\"z\"]}]}";
     CHECK(riddle_batch_parse(emptych, &b) == 1 && !b.item[0].has_choices);
 
-    // An unknown type is skipped, not drawn as a riddle. The field exists so a
-    // future content type needs no schema migration.
+    // THE KINDS THE RENDERER KNOWS. joke/word/math used to be skipped along
+    // with everything unrecognised; they are content types now, because a page
+    // whose shape never changes stops being looked at. An absent type still
+    // means riddle, and a genuinely unknown one is still skipped rather than
+    // drawn as a riddle nobody can solve.
     const char *typed =
         "{\"riddles\":[{\"type\":\"joke\",\"q\":\"J\",\"a\":\"A\"},"
-        "{\"type\":\"riddle\",\"q\":\"R\",\"a\":\"A\"}]}";
-    CHECK(riddle_batch_parse(typed, &b) == 1);
-    CHECK(b.skipped == 1 && strcmp(b.item[0].q, "R") == 0);
+        "{\"type\":\"riddle\",\"q\":\"R\",\"a\":\"A\"},"
+        "{\"type\":\"word\",\"q\":\"W\",\"a\":\"A\"},"
+        "{\"type\":\"math\",\"q\":\"M\",\"a\":\"A\"},"
+        "{\"q\":\"D\",\"a\":\"A\"},"
+        "{\"type\":\"limerick\",\"q\":\"L\",\"a\":\"A\"}]}";
+    CHECK(riddle_batch_parse(typed, &b) == 5);
+    CHECK(b.skipped == 1);                       // only the limerick
+    CHECK(b.item[0].kind == RK_JOKE   && strcmp(b.item[0].q, "J") == 0);
+    CHECK(b.item[1].kind == RK_RIDDLE && strcmp(b.item[1].q, "R") == 0);
+    CHECK(b.item[2].kind == RK_WORD);
+    CHECK(b.item[3].kind == RK_MATH);
+    CHECK(b.item[4].kind == RK_RIDDLE);          // absent type means riddle
+
+    // WHY THE ANSWER IS THE ANSWER. Optional: absent leaves an empty string,
+    // and the reveal then draws exactly the page it drew before this existed.
+    const char *withwhy =
+        "{\"riddles\":[{\"q\":\"Q\",\"a\":\"A\",\"why\":\"because\"},"
+        "{\"q\":\"Q2\",\"a\":\"A2\"}]}";
+    CHECK(riddle_batch_parse(withwhy, &b) == 2);
+    CHECK(strcmp(b.item[0].why, "because") == 0);
+    CHECK(b.item[1].why[0] == '\0');
 
     // ONE BAD ENTRY COSTS THAT ENTRY, NOT THE BATCH. A missing answer in the
     // middle of thirty riddles should not cost the month.
@@ -1149,11 +1332,13 @@ int main(void)
         { "schedule",        test_schedule },
         { "state",           test_state },
         { "state_edges",     test_state_edges },
+        { "issue_and_turns", test_issue_and_turns },
+        { "weekend_select",  test_weekend_selection },
         { "wake_ring",       test_wake_ring },
         { "wake_participation", test_wake_participation },
         { "kids_empty",      test_kids_empty },
         { "kids_birthday",   test_kids_birthday },
-        { "kids_callout",    test_kids_callout },
+        { "kids_turn",       test_kids_turn },
         { "weather_parse",     test_weather_parse },
         { "weather_icons",     test_weather_icons },
         { "weather_advice",    test_weather_advice },

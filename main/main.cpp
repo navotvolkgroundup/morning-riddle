@@ -164,14 +164,25 @@ extern "C" void app_main(void)
         riddle_nvs_t st;
         state_load(&st);
 
+        // THE KIDS BLOB IS NEEDED ON THIS PATH TOO, because a guess has to be
+        // credited to whoever the morning page named, and that is a rotation
+        // the button knows nothing about. Cache only: sdconfig_load() sits
+        // below this block precisely so a child's press is not queued behind
+        // config work, and sdconfig_load_cached() is two NVS reads.
+        static kids_t gk;
+        sdconfig_load_cached(&gk, nullptr);
+        const int32_t gday = riddle_local_day(time(nullptr), RIDDLE_TZ);
+
         riddle_input_t in = {};
+        in.whose_turn = (int8_t)kids_turn_today(&gk, gday);
+        in.kids_n     = (uint8_t)kids_turn_period(&gk);
         in.reason  = WAKE_GUESS;
         in.guess   = (int8_t)b;
         // Not read for a guess -- riddle_decide's WAKE_GUESS case looks only
         // at state and day -- but 1 was left over from the sample-content era
         // and read like a real bound. 0 says plainly that it is unused here.
         in.batch_n = 0;
-        in.today   = riddle_local_day(time(nullptr), RIDDLE_TZ);
+        in.today   = gday;
 
         const riddle_action_e act = riddle_decide(&in, &st);
 
@@ -392,7 +403,22 @@ extern "C" void app_main(void)
     struct tm lt;
     localtime_r(&now_t, &lt);
 
+    // Whose turn today is, and the batch's weekend flags, both fed IN to the
+    // decision core rather than derived inside it -- riddle_decide stays a
+    // pure function of its input, which is the whole reason its branches run
+    // on a Mac instead of on a wall.
+    static bool wk_flags[RB_MAX];
+    for (int i = 0; i < s_batch.count && i < RB_MAX; i++)
+        wk_flags[i] = s_batch.item[i].weekend;
+
     riddle_input_t in = {};
+    in.whose_turn = (int8_t)kids_turn_today(&kids, riddle_local_day(now_t, RIDDLE_TZ));
+    in.kids_n     = (uint8_t)kids_turn_period(&kids);
+    // Friday and Saturday. Friday is a half day here and Saturday has no
+    // school at all, so both want the weekend batch rather than a timetable
+    // riddle aimed at a morning nobody is leaving the house for.
+    in.want_weekend = (lt.tm_wday == 5 || lt.tm_wday == 6);
+    in.weekend      = (s_batch.count > 0) ? wk_flags : nullptr;
     // An alarm wake knows which slot it is from the clock; anything else --
     // a cold boot, a reflash -- is treated as a morning, which is idempotent
     // within a day thanks to that guard.
@@ -407,9 +433,10 @@ extern "C" void app_main(void)
 
     const riddle_action_e act = riddle_decide(&in, &st);
     state_save(&st);
-    ESP_LOGI(TAG, "action=%d idx=%u/%d state=%u streak=%u day=%ld",
+    ESP_LOGI(TAG, "action=%d idx=%u/%d state=%u issue=%u streak=%u turn=%d day=%ld",
              (int)act, (unsigned)st.idx, s_batch.count, (unsigned)st.state,
-             (unsigned)st.streak, (long)st.day);
+             (unsigned)st.issue, (unsigned)st.streak, (int)in.whose_turn,
+             (long)st.day);
 
 
     page_daily_content c = {};
@@ -420,7 +447,10 @@ extern "C" void app_main(void)
     std::snprintf(datebuf, sizeof datebuf, "%02d/%02d",
                   lt.tm_mday % 100, (lt.tm_mon + 1) % 100);
     c.date       = datebuf;
-    c.streak     = st.streak;
+    c.issue      = st.issue;
+    c.turn_kid   = in.whose_turn;
+    c.turn_streak = (in.whose_turn >= 0 && in.whose_turn < KIDS_MAX)
+                        ? st.kid_streak[in.whose_turn] : 0;
     c.sched      = &sched;
     c.wx         = (wx.fetched_at != 0) ? &wx : nullptr;
     c.kids       = (kids.count > 0) ? &kids : nullptr;
@@ -435,6 +465,8 @@ extern "C" void app_main(void)
         c.choices[2]  = r.choices[2];
         c.has_choices = r.has_choices;
         c.answer      = r.a;
+        c.why         = r.why;
+        c.kind        = r.kind;
         c.show_answer = (act == ACT_SHOW_ANSWER);
         ESP_LOGI(TAG, "riddle %u of %d, choices=%d, reveal=%d",
                  (unsigned)st.idx, s_batch.count, (int)r.has_choices,

@@ -82,6 +82,29 @@ const char *wmo_label(uint16_t code);
 // "..." exactly where the advice is.
 const char *weather_advice_he(const weather_t *w);
 
+// What the advice is ABOUT, so the page can colour it.
+//
+// Spectra 6 makes black, white, red, yellow, blue and green, and the page uses
+// two of them. This is the one line a child actually acts on, and colouring it
+// by kind makes it legible from the doorway without reading a word: wet is
+// blue, hot is ochre, cold is blue-dark, temperate is plain black.
+//
+// SEMANTIC, NOT DECORATIVE. The colour has to be redundant with the words, not
+// carry meaning of its own -- the page must still read correctly to a
+// colour-blind child, and to anyone looking at it in a hallway at dawn.
+//
+// This is a separate function rather than an extra out-parameter on
+// weather_advice_he() so core stays free of any M5GFX colour constant; the UI
+// maps the enum. Keep the two in step: every branch there has one here.
+typedef enum {
+    WX_TONE_PLAIN = 0,  // temperate; no colour earned
+    WX_TONE_WET,        // rain, drizzle, storm
+    WX_TONE_COLD,       // coat weather, snow
+    WX_TONE_HOT,        // hat-and-water weather
+} weather_tone_e;
+
+weather_tone_e weather_advice_tone(const weather_t *w);
+
 // Parses an open-meteo forecast response. Fills everything except
 // fetched_at, which the caller stamps because only it knows the clock.
 // Returns false if the document is unusable; *out is untouched on failure so

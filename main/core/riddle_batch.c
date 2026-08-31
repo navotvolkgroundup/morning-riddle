@@ -37,23 +37,33 @@ int riddle_batch_parse(const char *json, riddle_batch_t *out)
         if (out->count >= RB_MAX) break;
         if (!cJSON_IsObject(it)) { out->skipped++; continue; }
 
-        // Only one renderer exists. An unknown type is skipped rather than
-        // drawn as a riddle -- the field exists so a future content type needs
-        // no schema migration on a device that is awkward to reflash.
+        // The kinds the renderer knows. An unknown type is still skipped
+        // rather than drawn as a riddle -- that guard is what lets a future
+        // content type ship to the generator before it ships to a device that
+        // is awkward to reflash.
+        static const char *const kKinds[RK_KIND_COUNT] = {
+            "riddle", "joke", "word", "math"
+        };
+        int kind = -1;
         const cJSON *ty = cJSON_GetObjectItemCaseSensitive(it, "type");
-        if (cJSON_IsString(ty) && strcmp(ty->valuestring, "riddle") != 0) {
-            out->skipped++;
-            continue;
+        if (!cJSON_IsString(ty)) {
+            kind = RK_RIDDLE;                       // absent type means riddle
+        } else {
+            for (int i = 0; i < RK_KIND_COUNT; i++)
+                if (strcmp(ty->valuestring, kKinds[i]) == 0) { kind = i; break; }
         }
+        if (kind < 0) { out->skipped++; continue; }
 
         riddle_item_t r;
         memset(&r, 0, sizeof r);
+        r.kind = (uint8_t)kind;
         if (!take_str(it, "q", r.q, sizeof r.q, true) ||
             !take_str(it, "a", r.a, sizeof r.a, true)) {
             out->skipped++;
             continue;
         }
         take_str(it, "by", r.by, sizeof r.by, false);
+        take_str(it, "why", r.why, sizeof r.why, false);
 
         const cJSON *ch = cJSON_GetObjectItemCaseSensitive(it, "choices");
         if (cJSON_IsArray(ch) && cJSON_GetArraySize(ch) == 3) {

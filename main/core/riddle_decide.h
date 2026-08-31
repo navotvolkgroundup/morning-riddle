@@ -13,8 +13,11 @@
 #ifndef RIDDLE_DECIDE_H
 #define RIDDLE_DECIDE_H
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
+
+#include "kids.h"       // KIDS_MAX only; kids.h is pure C, same as this file
 
 // Local wall-clock times of the two daily events.
 #define RIDDLE_MORNING_HOUR  6
@@ -66,7 +69,21 @@ typedef struct {
     int32_t  day;              // local civil day of the riddle now displayed
     int32_t  last_played_day;  // local civil day of the last guess, for streaks
     uint16_t idx;              // index into the batch
-    uint16_t streak;           // consecutive days with a guess (participation)
+    uint16_t streak;           // consecutive days with a guess (household)
+
+    // THE ISSUE NUMBER, WHICH IS NOT THE STREAK. The masthead used to print
+    // the household streak as the issue number, and a paper's issue number
+    // does not reset because nobody read yesterday's. This counts mornings
+    // published and only ever goes up.
+    uint16_t issue;
+
+    // PER-KID STREAKS, COUNTED IN TURNS RATHER THAN DAYS. A child's turn comes
+    // round once every kids_turn_period() days, so "three in a row" means three
+    // consecutive TURNS taken, not three consecutive days -- counting days would
+    // reset every streak the morning after it started.
+    uint16_t kid_streak[KIDS_MAX];
+    int32_t  kid_last[KIDS_MAX];   // civil day of that kid's last taken turn
+
     uint8_t  state;            // riddle_state_e
     int8_t   guess;            // 0..2, or RIDDLE_NO_GUESS
 } riddle_nvs_t;
@@ -76,6 +93,21 @@ typedef struct {
     int8_t   guess;     // choice index for WAKE_GUESS, else RIDDLE_NO_GUESS
     uint16_t batch_n;   // riddles available; 0 means the batch is empty
     int32_t  today;     // local civil day, from riddle_local_day()
+
+    // Whose turn today is, from kids_turn_today(), and how many kids share the
+    // rotation. -1 and 0 when no kids are configured, which is normal and
+    // simply means no per-kid streak is kept.
+    int8_t   whose_turn;
+    uint8_t  kids_n;
+
+    // WEEKEND SELECTION. `weekend` is the batch's per-item flag array, length
+    // batch_n, or NULL when the caller has none. Saturday has no timetable, so
+    // the facts band is half height and the page reads as a weekday missing
+    // something; giving the weekend its own items is what makes it read as a
+    // different paper instead. A batch with no matching item falls through to
+    // the next one rather than blanking the wall.
+    bool         want_weekend;
+    const bool  *weekend;
 } riddle_input_t;
 
 #ifdef __cplusplus

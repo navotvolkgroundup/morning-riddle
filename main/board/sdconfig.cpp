@@ -60,6 +60,15 @@ void sdconfig_store_schedule(const schedule_t *sched)
     if (sched && state_nvs_init()) nvs_put_blob(kKeySched, sched, sizeof *sched);
 }
 
+void sdconfig_load_cached(kids_t *kids, schedule_t *sched)
+{
+    if (kids)  std::memset(kids,  0, sizeof *kids);
+    if (sched) std::memset(sched, 0, sizeof *sched);
+    if (!state_nvs_init()) return;
+    if (kids)  nvs_get_exact(kKeyKids,  kids,  sizeof *kids);
+    if (sched) nvs_get_exact(kKeySched, sched, sizeof *sched);
+}
+
 void sdconfig_load(kids_t *kids, schedule_t *sched)
 {
     if (!kids || !sched) return;

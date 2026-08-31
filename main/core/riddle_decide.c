@@ -106,8 +106,19 @@ static void begin_day(const riddle_input_t *in, riddle_nvs_t *st)
 {
     if (in->batch_n > 0) {
         // First run (RS_IDLE) shows riddle 0 rather than 1.
-        st->idx = (st->state == RS_IDLE) ? 0
-                                         : (uint16_t)((st->idx + 1) % in->batch_n);
+        uint16_t next = (st->state == RS_IDLE) ? 0
+                                               : (uint16_t)((st->idx + 1) % in->batch_n);
+        // Prefer an item whose weekend flag matches the day. Bounded by
+        // batch_n so a batch that is entirely one kind still lands on
+        // something -- a repeat is a mild disappointment, a blank reads as a
+        // broken device, and a weekday riddle on a Saturday is neither.
+        if (in->weekend) {
+            for (uint16_t tries = 0; tries < in->batch_n; tries++) {
+                if (in->weekend[next] == in->want_weekend) break;
+                next = (uint16_t)((next + 1) % in->batch_n);
+            }
+        }
+        st->idx = next;
     }
     // Participation, not accuracy (CEO 17A): a wrong guess keeps the run
     // alive. Only a day with NO guess at all breaks it -- turning a morning
@@ -115,6 +126,16 @@ static void begin_day(const riddle_input_t *in, riddle_nvs_t *st)
     // fastest way to make the wall something they avoid.
     if (st->last_played_day != in->today - 1) st->streak = 0;
 
+    // A kid's streak breaks when their PREVIOUS TURN went untaken, and their
+    // previous turn was kids_n days ago, not yesterday. Checking `today - 1`
+    // here would reset every per-kid streak the moment it started.
+    if (in->whose_turn >= 0 && in->whose_turn < KIDS_MAX && in->kids_n > 0) {
+        const int t = in->whose_turn;
+        if (st->kid_last[t] != in->today - (int32_t)in->kids_n)
+            st->kid_streak[t] = 0;
+    }
+
+    st->issue++;                      // mornings published; never resets
     st->day   = in->today;
     st->state = RS_QUESTION_SHOWN;
     st->guess = RIDDLE_NO_GUESS;
@@ -154,6 +175,13 @@ riddle_action_e riddle_decide(const riddle_input_t *in, riddle_nvs_t *st)
         if (st->last_played_day != in->today) {
             st->streak++;                     // once per day, however many presses
             st->last_played_day = in->today;
+            // The turn is credited to whoever the page named this morning.
+            // The board cannot tell who pressed; the page can tell them whose
+            // turn it was, which is the same contract a family already runs on.
+            if (in->whose_turn >= 0 && in->whose_turn < KIDS_MAX) {
+                st->kid_streak[in->whose_turn]++;
+                st->kid_last[in->whose_turn] = in->today;
+            }
         }
         return ACT_SHOW_RESULT;
 

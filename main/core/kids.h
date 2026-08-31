@@ -64,15 +64,29 @@ bool kids_valid(const kids_t *k);
 // which is the right answer for the vanishingly rare shared-birthday case.
 int kids_birthday_on(const kids_t *k, int month, int day);
 
-// Index of the kid to greet by name today, or -1 for "not today".
+// Whose turn it is today. -1 only when there are no kids.
+//
+// A ROTATION, NOT A LOTTERY. This used to fire on roughly one day in three and
+// pick a kid by hash, so a guess belonged to nobody and a child could go a week
+// without the wall ever saying their name. Every morning now names exactly one
+// of them, in strict rotation, and their streak is theirs.
 //
 // Deterministic in `day`, which is the point rather than an implementation
 // detail: the morning screen, an early reveal and the 13:00 screen are three
-// separate draws of the same day, and a random pick would name a different
-// kid on each. It also fires on roughly one day in KIDS_CALLOUT_ONE_IN, so
-// the greeting stays a small surprise instead of becoming furniture.
-#define KIDS_CALLOUT_ONE_IN 3
-int kids_pick_callout(const kids_t *k, int32_t day);
+// separate draws of the same day, and a random pick would name a different kid
+// on each.
+//
+// `day % count` is the whole rule, and the old comment rejected exactly this
+// on the grounds that it names the kids in strict rotation. That was the right
+// call when the greeting was meant to be a surprise and the wrong one now that
+// it is meant to be a turn. With four kids and a seven-day week the two cycles
+// are coprime, so nobody is permanently stuck with Mondays.
+int kids_turn_today(const kids_t *k, int32_t day);
+
+// How many days until this kid's turn comes round again. Equals the number of
+// kids, and exists so the streak rule can ask "was their last turn the previous
+// one?" without the caller re-deriving it.
+int kids_turn_period(const kids_t *k);
 
 #ifdef __cplusplus
 }

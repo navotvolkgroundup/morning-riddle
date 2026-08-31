@@ -23,6 +23,17 @@ constexpr int kChoiceGap = 8;
 // for what pixel doubling a 24x41 blob actually looks like.
 constexpr int kAnswerScale = 2;
 
+// Only for kinds that are NOT riddles; see the draw site.
+const char *kind_label(uint8_t kind)
+{
+    switch (kind) {
+    case RK_JOKE: return "\xd7\x91\xd7\x93\xd7\x99\xd7\x97\xd7\x94";                                  // "joke"
+    case RK_WORD: return "\xd7\x9e\xd7\x99\xd7\x9c\xd7\x94 \xd7\xa9\xd7\x9c \xd7\x94\xd7\x99\xd7\x95\xd7\x9d";  // "word of the day"
+    case RK_MATH: return "\xd7\xaa\xd7\xa8\xd7\x92\xd7\x99\xd7\x9c";                                  // "exercise"
+    default:      return nullptr;
+    }
+}
+
 he_metrics_t g_metrics;
 bool g_metrics_loaded = false;
 
@@ -46,23 +57,24 @@ void draw_header(const page_daily_content &c)
     // at 5..37 and clears the rule at DL_HDR_RULE_Y=42 by five pixels.
     he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, 0, NAMEPLATE);
 
-    // "יום שני · 31.08 · גיליון 4"
+    // "יום שני · 31.08 · גיליון 12"
     //
-    // THE STREAK IS THE ISSUE NUMBER. It used to be "4 days" in the corner,
-    // which is a scoreboard, and a scoreboard invites a child to feel behind.
-    // A daily paper numbers its issues, and this genuinely is issue four --
-    // the fourth consecutive morning this thing published. Same number, and it
-    // now reads as the paper's history rather than the reader's score.
+    // A REAL ISSUE NUMBER, WHICH IS NOT THE STREAK. This printed the household
+    // streak for one build, and a paper's issue number does not reset because
+    // nobody read yesterday's. riddle_nvs_t counts mornings published now and
+    // this prints that. It is also no longer a scoreboard, which matters: a
+    // scoreboard in the masthead invites a child to feel behind before they
+    // have read a word.
     //
     // Below two it says nothing: "issue 1" is not a boast, it is an admission.
     char dl[64];
     int n = std::snprintf(dl, sizeof dl, "%s \xc2\xb7 %s",
                           schedule_weekday_he(schedule_weekday(c.today)),
                           c.date ? c.date : "");
-    if (c.streak > 1 && n > 0 && n < (int)sizeof dl)
+    if (c.issue > 1 && n > 0 && n < (int)sizeof dl)
         std::snprintf(dl + n, sizeof dl - n,
                       " \xc2\xb7 \xd7\x92\xd7\x99\xd7\x9c\xd7\x99\xd7\x95\xd7\x9f %u",  // "issue N"
-                      (unsigned)c.streak);
+                      (unsigned)c.issue);
     // Left-flag position, so it sits opposite the nameplate rather than under
     // it. Measured, not guessed, because the day name and the issue number both
     // change width.
@@ -97,7 +109,19 @@ void draw_weather(const page_daily_content &c, int y)
     // line the advice has to fit into -- enough to elide "coat and gloves"
     // down to "..." on exactly the morning it matters. The whole line goes red
     // instead: unmistakable on an otherwise black page, and free.
-    const uint32_t colour = weather_is_stale(c.wx, c.now_utc) ? TFT_RED : TFT_BLACK;
+    // Stale outranks tone: a reading that may be wrong must not be dressed in
+    // the colour that says "trust this and take a hat".
+    uint32_t colour = TFT_BLACK;
+    if (weather_is_stale(c.wx, c.now_utc)) {
+        colour = TFT_RED;
+    } else {
+        switch (weather_advice_tone(c.wx)) {
+        case WX_TONE_WET:  colour = TFT_BLUE;   break;
+        case WX_TONE_COLD: colour = TFT_BLUE;   break;
+        case WX_TONE_HOT:  colour = TFT_YELLOW; break;
+        default:           colour = TFT_BLACK;  break;
+        }
+    }
 
     // RTL from the right edge: the temperature lands rightmost -- first, in
     // Hebrew reading order -- and the advice follows it leftwards.
@@ -115,7 +139,7 @@ void page_daily_draw(const page_daily_content &c)
     daily_flags_t f;
     f.schedule = c.sched && schedule_for_day(c.sched, c.today)[0] != 0;
     f.weather  = c.wx && c.wx->fetched_at != 0;
-    f.callout  = c.kids && kids_pick_callout(c.kids, c.today) >= 0;
+    f.callout  = c.turn_kid >= 0 && c.kids && c.turn_kid < c.kids->count;
     f.birthday = c.kids && kids_birthday_on(c.kids, c.month, c.day) >= 0;
 
     daily_layout_t L;
@@ -160,15 +184,31 @@ void page_daily_draw(const page_daily_content &c)
                               L.birthday_y, c.kids->kid[who].name, TFT_RED);
     }
 
-    if (L.callout_y != DL_ABSENT) {
-        const int who = kids_pick_callout(c.kids, c.today);
-        if (who >= 0) {
-            char line[KID_NAME_MAX + 24];
-            std::snprintf(line, sizeof line, "%s, \xd7\x96\xd7\x90\xd7\xaa "
-                          "\xd7\x91\xd7\xa9\xd7\x91\xd7\x99\xd7\x9c\xd7\x9a",
-                          c.kids->kid[who].name);
-            he::draw_line_rtl_fit(he::body(), DL_CANVAS_W - DL_MARGIN_X,
-                                  DL_MARGIN_X, L.callout_y, line);
+    // WHOSE TURN IT IS, EVERY MORNING, IN ROTATION. This used to fire on
+    // roughly one day in three and pick by hash, so a guess belonged to nobody.
+    // Now the page names one child a day and carries their own run of turns on
+    // the flag side -- the same nameplate-and-dateline treatment as the
+    // masthead, which is what makes the two lines read as one paper.
+    if (L.callout_y != DL_ABSENT && c.turn_kid >= 0) {
+        char line[KID_NAME_MAX + 24];
+        std::snprintf(line, sizeof line, "%s, \xd7\x96\xd7\x90\xd7\xaa "
+                      "\xd7\x91\xd7\xa9\xd7\x91\xd7\x99\xd7\x9c\xd7\x9a",
+                      c.kids->kid[c.turn_kid].name);
+        he::draw_line_rtl_fit(he::body(), DL_CANVAS_W - DL_MARGIN_X,
+                              DL_MARGIN_X, L.callout_y, line);
+
+        // Counted in turns, not days -- see riddle_decide.h. Below two there
+        // is nothing to say, and saying "1 in a row" to a child who has just
+        // started is worse than saying nothing.
+        if (c.turn_streak > 1) {
+            char run[40];
+            std::snprintf(run, sizeof run,
+                          "%u \xd7\xa4\xd7\xa2\xd7\x9e\xd7\x99\xd7\x9d "
+                          "\xd7\x91\xd7\xa8\xd7\xa6\xd7\xa3",     // "N times in a row"
+                          (unsigned)c.turn_streak);
+            he::draw_line_rtl(he::small(),
+                              DL_MARGIN_X + he::measure(he::small(), run),
+                              L.callout_y + 9, run);
         }
     }
 
@@ -192,12 +232,34 @@ void page_daily_draw(const page_daily_content &c)
     const int riddle_w = DL_CANVAS_W - 2 * DL_MARGIN_X;
     const char *q = c.question ? c.question : "";
     const int q_lines = he::wrapped_lines(m, riddle_w, q, 5);
-    int block_h = q_lines * (HE_H - 6);
-    if (c.show_answer && c.answer)  block_h += 20 + 16 + HE_H * kAnswerScale;
-    else if (c.has_choices)         block_h += 12 + 3 * kChoiceH + 2 * kChoiceGap;
+
+    // A KICKER, BUT ONLY WHEN THE PAGE WOULD OTHERWISE LIE. The paper is called
+    // "the morning riddle", so a riddle needs no label -- but a joke read as a
+    // riddle is a puzzle with no solution, and a child who cannot solve it
+    // concludes they are bad at this rather than that it was a joke.
+    const char *kicker = kind_label(c.kind);
+    const int kicker_h = kicker ? DL_SMALL_H + 6 : 0;
+
+    const char *why = (c.why && c.why[0]) ? c.why : nullptr;
+    const int why_lines = (c.show_answer && why)
+                              ? he::wrapped_lines(m, riddle_w, why, 3) : 0;
+
+    int block_h = kicker_h + q_lines * (HE_H - 6);
+    if (c.show_answer && c.answer) {
+        block_h += 20 + 16 + HE_H * kAnswerScale;
+        if (why_lines) block_h += 18 + why_lines * (HE_H - 6);
+    } else if (c.has_choices) {
+        block_h += 12 + 3 * kChoiceH + 2 * kChoiceGap;
+    }
 
     const int slack = DL_BODY_BOTTOM - L.riddle_top - block_h;
     int y = L.riddle_top + (slack > 0 ? slack / 2 : 0);
+
+    if (kicker) {
+        he::draw_line_rtl(he::small(), DL_CANVAS_W - DL_MARGIN_X, y, kicker,
+                          TFT_RED);
+        y += kicker_h;
+    }
 
     y = he::draw_wrapped(m, y, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
                          DL_BODY_BOTTOM, q, 5);
@@ -217,6 +279,17 @@ void page_daily_draw(const page_daily_content &c)
         // this page wants.
         he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, y, c.answer,
                           TFT_RED, kAnswerScale);
+        y += HE_H * kAnswerScale;
+
+        // AND WHY IT IS THE ANSWER. In black under the red, at reading size:
+        // the answer is the payoff, this is the part that makes the payoff
+        // worth having. Optional -- an item with no `why` draws exactly the
+        // page it drew before this existed.
+        if (why_lines) {
+            y += 18;
+            he::draw_wrapped(m, y, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
+                             DL_BODY_BOTTOM, why, 3);
+        }
     } else if (c.has_choices) {
         y += 12;
         for (int i = 0; i < 3; i++) {

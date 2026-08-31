@@ -33,20 +33,24 @@ int kids_birthday_on(const kids_t *k, int month, int day)
     return -1;
 }
 
-int kids_pick_callout(const kids_t *k, int32_t day)
+int kids_turn_today(const kids_t *k, int32_t day)
 {
     if (!kids_valid(k) || k->count == 0) return -1;
 
-    // Knuth's multiplicative hash. Cheap, and good enough to keep consecutive
-    // days from correlating -- which plain `day % 3` would not, since it would
-    // fire on a fixed weekday-like cycle and name the kids in strict rotation.
-    uint32_t h = (uint32_t)day * 2654435761u;
-    h ^= h >> 16;
-
-    if (h % KIDS_CALLOUT_ONE_IN != 0) return -1;
-    return (int)((h / KIDS_CALLOUT_ONE_IN) % k->count);
+    // Floor-modulo, not C's truncating %. Civil days here are always positive
+    // in practice, but a negative day would index off the front of the array
+    // and this costs one branch.
+    int32_t n = (int32_t)k->count;
+    int32_t r = day % n;
+    if (r < 0) r += n;
+    return (int)r;
 }
 
+int kids_turn_period(const kids_t *k)
+{
+    if (!kids_valid(k) || k->count == 0) return 0;
+    return (int)k->count;
+}
 bool kids_parse(const char *json, kids_t *out)
 {
     if (!json || !out) return false;

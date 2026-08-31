@@ -200,3 +200,27 @@ const char *weather_advice_he(const weather_t *w)
         return "\xd7\x9b\xd7\x95\xd7\x91\xd7\xa2 \xd7\x95\xd7\x9e\xd7\x99\xd7\x9d";                // hat and water
     return "\xd7\x97\xd7\x95\xd7\x9c\xd7\xa6\xd7\x94 \xd7\xa7\xd7\xa6\xd7\xa8\xd7\x94";            // short-sleeved shirt
 }
+
+// See weather.h. Every branch here mirrors one in weather_advice_he(); the two
+// are tested together against the same boundaries so they cannot drift.
+weather_tone_e weather_advice_tone(const weather_t *w)
+{
+    if (!w) return WX_TONE_PLAIN;
+
+    switch (w->wmo) {
+    case 71: case 73: case 75: case 77: case 85: case 86:
+        return WX_TONE_COLD;                                   // snow
+    case 65: case 82: case 95: case 96: case 99:
+    case 51: case 53: case 55: case 56: case 57:
+    case 61: case 63: case 66: case 67: case 80: case 81:
+        return WX_TONE_WET;
+    default:
+        break;
+    }
+
+    const int t = w->temp_x10;
+    if (t < 150) return WX_TONE_COLD;                          // coat, warm coat
+    if (t < 240) return WX_TONE_PLAIN;                         // sweatshirt, long sleeves
+    if (w->hi_x10 > t && w->hi_x10 >= 300) return WX_TONE_HOT;  // hat and water
+    return WX_TONE_PLAIN;                                      // short sleeves
+}

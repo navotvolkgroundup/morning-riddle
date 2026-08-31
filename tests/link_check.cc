@@ -51,7 +51,8 @@ __attribute__((used)) void *const volatile kRefs[] = {
 
     (void *)kids_valid,
     (void *)kids_birthday_on,
-    (void *)kids_pick_callout,
+    (void *)kids_turn_today,
+    (void *)kids_turn_period,
 
     (void *)wmo_icon,
     (void *)wmo_label,
