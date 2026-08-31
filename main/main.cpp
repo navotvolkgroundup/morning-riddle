@@ -216,6 +216,15 @@ extern "C" void app_main(void)
         }
 
         feedback_settle();
+
+        // RE-ARM BEFORE SLEEPING. This path used to call wake_sleep() with
+        // g_secs_to_wake still zero, so a guess left the board asleep with no
+        // timer backstop -- only the RTC edge, which is the line that failed.
+        // The RTC alarm itself survives in the chip across boots, but the
+        // backstop does not, so every press quietly removed it.
+        int ignored = 0;
+        if (!wake_arm_next(time(nullptr), &ignored))
+            ESP_LOGE(TAG, "ALARM DID NOT ARM after a guess");
         wake_sleep();
     }
 

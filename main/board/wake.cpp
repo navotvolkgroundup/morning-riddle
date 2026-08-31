@@ -108,13 +108,26 @@ bool wake_arm_next(time_t now, int *is_morning)
     t.hours   = lt.tm_hour;
     t.minutes = lt.tm_min;
     t.seconds = 0;
-    M5.Rtc.setAlarmIRQ(t);
+    // CHECK THE RETURN. It was discarded for the whole life of this function,
+    // which is how an alarm that never armed could still report success.
+    // -1 means M5Unified has no RTC driver bound at all.
+    if (M5.Rtc.setAlarmIRQ(t) < 0) {
+        ESP_LOGE(TAG, "setAlarmIRQ refused -- no RTC driver");
+        return false;
+    }
 
-    // READ IT BACK. An alarm that silently failed to arm produces a board that
-    // never wakes again and looks exactly like one that works.
+    // THIS DOES NOT VERIFY THE ALARM, and the comment here used to claim it
+    // did: "READ IT BACK. An alarm that silently failed to arm produces a
+    // board that never wakes again and looks exactly like one that works."
+    // getTime() reads the CLOCK. It proves the RTC is answering on the bus and
+    // nothing whatever about the alarm register, so the failure it was written
+    // to catch was exactly the failure it could not see. M5Unified exposes no
+    // alarm readback, so the honest position is: this is a bus check, and the
+    // real guarantee that the board comes back is the timer backstop now armed
+    // on both sleep paths.
     m5::rtc_time_t got;
     if (!M5.Rtc.getTime(&got)) {
-        ESP_LOGE(TAG, "alarm set but the RTC will not answer -- assuming FAILED");
+        ESP_LOGE(TAG, "RTC will not answer on the bus -- assuming FAILED");
         return false;
     }
     ESP_LOGI(TAG, "RTC now reads %02d:%02d:%02d", got.hours, got.minutes,
@@ -384,6 +397,31 @@ void wake_sleep()
     // All four lines idle high and pull low when asserted, so ANY_LOW covers
     // the alarm and every button with one mask.
     esp_sleep_enable_ext1_wakeup_io(kWakeMask, ESP_EXT1_WAKEUP_ANY_LOW);
+
+    // TWO WAYS BACK, NOT ONE -- the same rule wake_power_off() already states
+    // and this path did not follow.
+    //
+    // The EXT1 mask above depends on the RX8130's IRQ line reaching G7 and on
+    // the alarm firing exactly as configured. Nothing had ever proven either.
+    // The power-off path hedged that with a PM1 timer; this one hedged it with
+    // nothing, so the 13:00 reveal -- the only wake that takes this path --
+    // rested entirely on an untested line. On 2026-08-31 it did not fire, and
+    // the board sat asleep through its own reveal looking exactly like a board
+    // that was working.
+    //
+    // The ESP32's own RTC timer depends on no external wiring at all. A minute
+    // late, so the alarm edge still wins when it works and the page is not
+    // drawn twice; whichever fires first wins.
+    if (g_secs_to_wake > 0) {
+        const uint64_t backstop = (uint64_t)(g_secs_to_wake + 60) * 1000000ULL;
+        esp_sleep_enable_timer_wakeup(backstop);
+        ESP_LOGW(TAG, "timer backstop armed for %u s", (unsigned)(g_secs_to_wake + 60));
+    } else {
+        // Reached when nothing armed an alarm this boot. Buttons still wake
+        // it, but nothing else will, and that is worth saying out loud.
+        ESP_LOGE(TAG, "NO TIMER BACKSTOP: only the RTC edge and the buttons "
+                      "can wake this board");
+    }
 
     // Hold the pull-ups through sleep, or the inputs float and the board wakes
     // on noise -- which on a battery device is indistinguishable from a bug.
