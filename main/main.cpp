@@ -251,6 +251,16 @@ extern "C" void app_main(void)
     // button" instead of "be holding a button at one exact instant". The cost
     // is three seconds on a cold boot only -- not on the twice-daily alarm
     // wakes, and not on a button wake, which is where speed actually matters.
+    // THE SETUP SCREEN OVERWRITES THE PANEL, and the redraw decision below
+    // does not know it. That decision is about the RIDDLE -- ACT_NONE means
+    // "the riddle on the panel is still correct" -- and it is right about the
+    // riddle and wrong about the pixels the moment anything else paints over
+    // them. A portal visit that changes no config on a day whose riddle is
+    // already shown therefore leaves SETUP INSTRUCTIONS on the wall until the
+    // next scheduled wake, which is how a board with a perfectly good riddle
+    // spends a day advertising an access point that timed out five minutes in.
+    bool panel_overwritten = false;
+
     bool want_setup = false;
     if (why == wake_cause::cold) {
         for (int i = 0; i < 60 && !want_setup; i++) {   // 60 x 50ms = 3s
@@ -278,6 +288,7 @@ extern "C" void app_main(void)
         // queued and the screen never changes. That is why the setup
         // instructions never appeared, on a panel that was working fine.
         ui_canvas_push();       // queued, not synchronous
+        panel_overwritten = true;
 
         // kids and sched are updated in place, so the page below draws what
         // was just typed rather than what was loaded a moment ago.
@@ -306,6 +317,7 @@ extern "C" void app_main(void)
             ui_canvas().drawString("192.168.4.1", 16, 240);
             ui_canvas().endWrite();
             ui_canvas_push();   // queued, not synchronous
+            panel_overwritten = true;
 
             if (portal_run(&kids, &sched)) {
                 // Straight back round: the credentials are in NVS now.
@@ -443,10 +455,12 @@ extern "C" void app_main(void)
     // scheduled wake. A changed fingerprint forces one redraw of its own.
     const uint32_t cfg_fp = state_config_fingerprint(&kids, &sched);
     const bool cfg_changed = (cfg_fp != state_drawn_config());
-    const bool will_draw   = (act != ACT_NONE) || cfg_changed;
+    const bool will_draw   = (act != ACT_NONE) || cfg_changed || panel_overwritten;
 
     if (cfg_changed && act == ACT_NONE)
         ESP_LOGW(TAG, "riddle unchanged, kids or timetable did -- redrawing");
+    else if (panel_overwritten && act == ACT_NONE)
+        ESP_LOGW(TAG, "riddle unchanged, but setup painted over it -- redrawing");
     else if (!will_draw)
         ESP_LOGI(TAG, "nothing to redraw; leaving the panel alone");
 
