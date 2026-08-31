@@ -646,6 +646,28 @@ static int test_schedule_weekday(void)
     return 0;
 }
 
+static int test_weekday_he(void)
+{
+    // Distinct, non-empty, and Hebrew -- every string starts with the UTF-8
+    // lead byte for the Hebrew block.
+    for (int i = 0; i < 7; i++) {
+        const char *n = schedule_weekday_he(i);
+        CHECK(n && n[0] == '\xd7');
+        for (int j = 0; j < i; j++) CHECK(strcmp(n, schedule_weekday_he(j)) != 0);
+    }
+    // Out of range clamps rather than indexing off the end. The caller passes
+    // schedule_weekday() output, which is arithmetic, not a checked enum.
+    CHECK(schedule_weekday_he(-1) == schedule_weekday_he(0));
+    CHECK(schedule_weekday_he(7)  == schedule_weekday_he(0));
+    CHECK(schedule_weekday_he(99) == schedule_weekday_he(0));
+
+    // 20692 is 2026-08-27, a Thursday -- the same date the firmware asserts
+    // against at boot. Thursday is 4 with Sunday as 0.
+    CHECK(strcmp(schedule_weekday_he(schedule_weekday(20692)),
+                 schedule_weekday_he(4)) == 0);
+    return 0;
+}
+
 static int test_schedule_parse(void)
 {
     schedule_t s;
@@ -1116,6 +1138,7 @@ int main(void)
         { "weather_advice",    test_weather_advice },
         { "weather_staleness", test_weather_staleness },
         { "schedule_weekday",  test_schedule_weekday },
+        { "weekday_he",        test_weekday_he },
         { "schedule_parse",    test_schedule_parse },
         { "sd_json",           test_sd_json },
         { "daily_layout",      test_daily_layout },

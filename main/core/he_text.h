@@ -25,7 +25,13 @@ extern "C" {
 #define HE_NGLYPH   (HE_LAST - HE_BASE + 1)
 #define HE_GAP      3                   // space between letters
 #define HE_SPACE    9                   // width of a word space
-#define HE_LAT_W    16                  // Latin advance, for embedded runs
+// Latin advance for embedded runs. 12, not 16: M5GFX's built-in font is 6x8
+// and draw_line_rtl renders these runs at setTextSize(2), so the glyph it
+// actually draws advances 12px. Reserving 16 and drawing 12 left a 4px hole
+// per character at the RIGHT of every Latin run -- all of the slack on one
+// side, which is why "27C" floated away from the advice beside it and the "?"
+// ending a question detached from its word.
+#define HE_LAT_W    12
 
 typedef struct {
     uint8_t width[HE_NGLYPH];           // ink width per Hebrew letter

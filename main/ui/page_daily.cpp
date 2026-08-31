@@ -16,9 +16,9 @@ namespace {
 constexpr int kChoiceH   = 56;
 constexpr int kChoiceGap = 8;
 
-// Markers name the buttons, so they are ASCII and short. A, B, C match the
-// silkscreen rather than arrows, which would need a direction convention.
-const char *kMarks[3] = { "A", "B", "C" };
+// The answer is drawn at double size. See the draw site for why, and hebrew.hpp
+// for what pixel doubling a 24x41 blob actually looks like.
+constexpr int kAnswerScale = 2;
 
 he_metrics_t g_metrics;
 bool g_metrics_loaded = false;
@@ -35,12 +35,30 @@ void draw_header(const page_daily_content &c)
     ui_canvas().setTextSize(2);
     if (c.date) ui_canvas().drawString(c.date, DL_MARGIN_X, DL_HDR_Y);
 
+    // THE DAY NAME, IN HEBREW, AT THE RIGHT -- where an RTL page begins.
+    //
+    // Drawn at y=0 rather than DL_HDR_Y, and that is not a fudge: ink occupies
+    // rows 5..37 of the 41px cell, so a cell at y=0 puts its ink at 5..37 and
+    // clears the rule at DL_HDR_RULE_Y=40 by two pixels. That is what makes
+    // this free -- the header keeps its 40px and the riddle budget below is
+    // untouched, which matters because the worst-case layout (timetable,
+    // weather, birthday and callout together) already sits 11px above
+    // DL_RIDDLE_MIN_H. A taller header would have broken it on birthdays.
+    const int wd_right = DL_CANVAS_W - DL_MARGIN_X;
+    const char *wd = schedule_weekday_he(schedule_weekday(c.today));
+    he::draw_line_rtl(metrics(), wd_right, 0, wd);
+
     // The streak is address, not information -- the page telling its reader it
     // has been paying attention. Below two days there is nothing to say.
+    // In Hebrew now: "4 days" was English on a page for children who are
+    // learning to read Hebrew, printed in the one spot meant to speak to them.
     if (c.streak > 1) {
-        char s[24];
-        std::snprintf(s, sizeof s, "%u days", (unsigned)c.streak);
-        ui_canvas().drawString(s, DL_CANVAS_W - DL_MARGIN_X - 90, DL_HDR_Y);
+        char s[32];
+        std::snprintf(s, sizeof s, "%u \xd7\x99\xd7\x9e\xd7\x99\xd7\x9d",   // "N days"
+                      (unsigned)c.streak);
+        // Right-aligned against the day name's left edge, measured rather than
+        // guessed, so a long day name ("Wednesday") cannot collide with it.
+        he::draw_line_rtl(metrics(), wd_right - he::measure(metrics(), wd) - 14, 0, s);
     }
 
     ui_canvas().drawFastHLine(DL_MARGIN_X, DL_HDR_RULE_Y,
@@ -137,11 +155,28 @@ void page_daily_draw(const page_daily_content &c)
         }
     }
 
-    // The riddle. Five lines is the cap the layout budget assumes; a question
-    // longer than that is a generator problem, not a rendering one.
-    int y = he::draw_wrapped(m, L.riddle_top, DL_MARGIN_X,
-                             DL_CANVAS_W - DL_MARGIN_X, DL_BODY_BOTTOM,
-                             c.question ? c.question : "", 5);
+    // THE RIDDLE BLOCK, CENTRED IN WHAT IS LEFT.
+    //
+    // It used to start hard against riddle_top and flow down, which meant the
+    // composition was decided by how long the riddle happened to be. A short
+    // one ("what has teeth and never bites?") left the bottom 45% of the panel
+    // blank and the whole page looked top-weighted and unfinished; a long one
+    // filled it and looked deliberate. Same code, same day, opposite result.
+    //
+    // Measuring the block first and centring it costs one extra line-break
+    // pass over a string under 200 bytes, and makes both cases look composed.
+    const int riddle_w = DL_CANVAS_W - 2 * DL_MARGIN_X;
+    const char *q = c.question ? c.question : "";
+    const int q_lines = he::wrapped_lines(m, riddle_w, q, 5);
+    int block_h = q_lines * (HE_H - 6);
+    if (c.show_answer && c.answer)  block_h += 20 + 16 + HE_H * kAnswerScale;
+    else if (c.has_choices)         block_h += 12 + 3 * kChoiceH + 2 * kChoiceGap;
+
+    const int slack = DL_BODY_BOTTOM - L.riddle_top - block_h;
+    int y = L.riddle_top + (slack > 0 ? slack / 2 : 0);
+
+    y = he::draw_wrapped(m, y, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
+                         DL_BODY_BOTTOM, q, 5);
     if (y < 0) y = L.riddle_top + 3 * (HE_H - 6);   // clamped; drew what it could
 
     if (c.show_answer && c.answer) {
@@ -149,24 +184,33 @@ void page_daily_draw(const page_daily_content &c)
         ui_canvas().drawFastHLine(DL_MARGIN_X, y, DL_CANVAS_W - 2 * DL_MARGIN_X,
                                  TFT_BLACK);
         y += 16;
-        // In red, and larger than the question was. This is the payoff the
-        // whole day builds to, and it should be readable across a room.
-        he::draw_line_rtl(m, DL_CANVAS_W - DL_MARGIN_X, y, c.answer, TFT_RED);
+        // DOUBLE SIZE, AND NOW ACTUALLY. This comment used to promise the
+        // answer was "larger than the question was ... readable across a
+        // room", and draw_line_rtl had no size parameter at all -- the payoff
+        // the whole day builds to was rendered at exactly the weight of a
+        // timetable entry. Pixel doubling of a 24x41 blob is coarse up close
+        // and unmistakable from the far side of a room, which is the trade
+        // this page wants.
+        he::draw_line_rtl(m, DL_CANVAS_W - DL_MARGIN_X, y, c.answer, TFT_RED,
+                          kAnswerScale);
     } else if (c.has_choices) {
         y += 12;
         for (int i = 0; i < 3; i++) {
             if (y + kChoiceH > DL_BODY_BOTTOM) break;
-            ui_canvas().setTextColor(TFT_BLACK);
-            ui_canvas().setTextSize(2);
-#if PD_BUTTONS_ON_LEFT_EDGE
-            ui_canvas().drawString(kMarks[i], DL_MARGIN_X + 4, y + 12);
-            he::draw_line_rtl(m, DL_CANVAS_W - DL_MARGIN_X - 8, y,
+            // NO A/B/C MARKERS. They were printed top-to-bottom as A, B, C and
+            // the case is silkscreened C, B, A for those same three buttons --
+            // see wake.hpp, which documents the inversion. A child who trusted
+            // the letters pressed the opposite end of the list. The comment
+            // here claimed they "match the silkscreen"; two of the three never
+            // did.
+            //
+            // Deleting them is the whole fix. The real affordance was always
+            // position -- three lines beside three buttons in the same order,
+            // which is correct and was correct before -- and the letters only
+            // ever contradicted it. It also takes the last Latin off a Hebrew
+            // page and gives each choice back 34px of line.
+            he::draw_line_rtl(m, DL_CANVAS_W - DL_MARGIN_X, y,
                               c.choices[i] ? c.choices[i] : "");
-#else
-            ui_canvas().drawString(kMarks[i], DL_CANVAS_W - DL_MARGIN_X - 20, y + 12);
-            he::draw_line_rtl(m, DL_CANVAS_W - DL_MARGIN_X - 34, y,
-                              c.choices[i] ? c.choices[i] : "");
-#endif
             y += kChoiceH + kChoiceGap;
         }
     }

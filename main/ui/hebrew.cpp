@@ -16,7 +16,7 @@ constexpr int kGlyph    = kRowBytes * HE_H;
 
 inline size_t blob_size() { return (size_t)(font24HE_end - font24HE_start); }
 
-void draw_glyph(int x, int y, uint32_t cp, uint32_t colour)
+void draw_glyph(int x, int y, uint32_t cp, uint32_t colour, int scale)
 {
     if (cp < HE_BASE || cp > HE_LAST) return;
     size_t off = (size_t)(cp - HE_BASE) * kGlyph;
@@ -28,8 +28,11 @@ void draw_glyph(int x, int y, uint32_t cp, uint32_t colour)
             uint8_t byte = g[row * kRowBytes + b];
             if (byte == 0xFF) continue;                 // all background
             for (int bit = 0; bit < 8; bit++) {
-                if (!((byte >> (7 - bit)) & 1))         // 0 = ink
-                    ui_canvas().drawPixel(x + b * 8 + bit, y + row, colour);
+                if ((byte >> (7 - bit)) & 1) continue;  // 1 = background
+                const int px = x + (b * 8 + bit) * scale;
+                const int py = y + row * scale;
+                if (scale == 1) ui_canvas().drawPixel(px, py, colour);
+                else ui_canvas().fillRect(px, py, scale, scale, colour);
             }
         }
     }
@@ -52,21 +55,21 @@ void load_metrics(he_metrics_t *m)
     }
 }
 
-int measure(const he_metrics_t *m, const char *s)
+int measure(const he_metrics_t *m, const char *s, int scale)
 {
     int w = 0;
     const char *p = s;
     uint32_t cp;
     int n;
     while ((n = he_utf8_next(p, &cp)) > 0) {
-        if (he_is_letter(cp))        { w += he_glyph_width(m, cp) + HE_GAP; p += n; }
-        else if (cp == ' ')          { w += HE_SPACE; p += n; }
+        if (he_is_letter(cp))        { w += (he_glyph_width(m, cp) + HE_GAP) * scale; p += n; }
+        else if (cp == ' ')          { w += HE_SPACE * scale; p += n; }
         else if (cp > 0x20 && cp < 0x7F) {
             uint32_t c2; int k; const char *q = p; int run = 0;
             while ((k = he_utf8_next(q, &c2)) > 0 && c2 > 0x20 && c2 < 0x7F) {
                 run++; q += k;
             }
-            w += run * HE_LAT_W;
+            w += run * HE_LAT_W * scale;
             p = q;
         } else { p += n; }
     }
@@ -102,7 +105,7 @@ void draw_line_rtl_fit(const he_metrics_t *m, int right_x, int left_limit,
 }
 
 void draw_line_rtl(const he_metrics_t *m, int right_x, int y, const char *s,
-                   uint32_t colour)
+                   uint32_t colour, int scale)
 {
     int x = right_x;
     const char *p = s;
@@ -112,12 +115,12 @@ void draw_line_rtl(const he_metrics_t *m, int right_x, int y, const char *s,
     while ((n = he_utf8_next(p, &cp)) > 0) {
         if (he_is_letter(cp)) {
             int w = he_glyph_width(m, cp);
-            x -= w + HE_GAP;
+            x -= (w + HE_GAP) * scale;
             if (x < 0) return;
-            draw_glyph(x, y, cp, colour);
+            draw_glyph(x, y, cp, colour, scale);
             p += n;
         } else if (cp == ' ') {
-            x -= HE_SPACE;
+            x -= HE_SPACE * scale;
             p += n;
         } else if (cp > 0x20 && cp < 0x7F) {
             // Reserve the whole Latin run, then draw it LTR inside that slot so
@@ -129,7 +132,7 @@ void draw_line_rtl(const he_metrics_t *m, int right_x, int y, const char *s,
             while ((k = he_utf8_next(q, &c2)) > 0 && c2 > 0x20 && c2 < 0x7F) {
                 runlen++; runbytes += k; q += k;
             }
-            x -= runlen * HE_LAT_W;
+            x -= runlen * HE_LAT_W * scale;
             if (x < 0) return;
             char buf[96];
             int cpy = runbytes < (int)sizeof(buf) - 1 ? runbytes : (int)sizeof(buf) - 1;
@@ -137,13 +140,28 @@ void draw_line_rtl(const he_metrics_t *m, int right_x, int y, const char *s,
             buf[cpy] = '\0';
             // Latin sits lower in the taller Hebrew cell so baselines align.
             ui_canvas().setTextColor(colour);
-            ui_canvas().setTextSize(2);
-            ui_canvas().drawString(buf, x, y + (HE_H - 28) / 2 + 4);
+            ui_canvas().setTextSize(2 * scale);
+            ui_canvas().drawString(buf, x, y + (HE_H * scale - 16 * scale) / 2);
             p += runbytes;
         } else {
             p += n;                                     // undrawable: skip
         }
     }
+}
+
+int wrapped_lines(const he_metrics_t *m, int width, const char *text,
+                  int max_lines)
+{
+    const char *p = text;
+    int lines = 0;
+    while (*p && lines < max_lines) {
+        const int len = he_line_break(m, p, width);
+        if (len <= 0) break;
+        lines++;
+        p += len;
+        while (*p == ' ') p++;
+    }
+    return lines;
 }
 
 int draw_wrapped(const he_metrics_t *m, int y, int left_x, int right_x,

@@ -21,14 +21,13 @@ extern "C" {
 #include "weather.h"
 }
 
-// Which physical edge the three buttons sit on. The choice markers must be on
-// the same side as the buttons they name, or the page silently instructs the
-// reader to press the wrong one.
-//
-// VERIFIED on hardware 2026-08-28: the buttons are on the RIGHT. Guessed left
-// first and it was wrong, which is exactly how it went on the Waveshare board
-// too -- this is not a thing to reason about, only to look at.
-#define PD_BUTTONS_ON_LEFT_EDGE 0
+// The three buttons are on the RIGHT edge -- verified on hardware 2026-08-28,
+// having guessed left first and been wrong, exactly as on the Waveshare board.
+// This used to drive PD_BUTTONS_ON_LEFT_EDGE, which placed A/B/C markers on the
+// matching side. The markers are gone (they contradicted the case silkscreen;
+// see page_daily.cpp), so nothing reads the edge any more. The fact is kept
+// because the choices are ordered top-to-bottom to match those buttons, and
+// that ordering is the page's only remaining affordance for which one to press.
 
 struct page_daily_content {
     const char     *date;           // short date, ASCII, e.g. "27/08"

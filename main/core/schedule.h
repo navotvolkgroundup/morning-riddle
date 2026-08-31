@@ -52,6 +52,10 @@ typedef struct {
 // 20692 (2026-08-27, Thursday), 20694 (Saturday) and 20695 (Sunday).
 int schedule_weekday(int32_t civil_day);
 
+// The weekday in Hebrew for the page header, Sunday = 0. Static string, never
+// NULL; out-of-range clamps instead of indexing off the end.
+const char *schedule_weekday_he(int wd);
+
 // Parses a schedule document. Days may be missing; unusable subject strings
 // are skipped rather than failing the whole file. Returns false only if the
 // document itself is unusable, and leaves *out untouched in that case so a bad

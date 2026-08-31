@@ -102,3 +102,28 @@ bool schedule_is_empty(const schedule_t *s)
         if (s->line[d][0]) return false;
     return true;
 }
+
+// The weekday in Hebrew, for the page header. Sunday is 0, matching
+// schedule_weekday().
+//
+// "31/08" tells a seven-year-old nothing. The day name is what a child
+// actually orients by, it is the same fact the timetable line is already
+// keyed on, and it puts a Hebrew anchor at the top of a page that otherwise
+// opened with Latin digits.
+//
+// Returns a static string, never NULL. Out-of-range clamps rather than
+// indexing off the end -- the caller passes arithmetic, not a checked enum.
+const char *schedule_weekday_he(int wd)
+{
+    static const char *const names[7] = {
+        "\xd7\x99\xd7\x95\xd7\x9d \xd7\xa8\xd7\x90\xd7\xa9\xd7\x95\xd7\x9f",          // Sunday
+        "\xd7\x99\xd7\x95\xd7\x9d \xd7\xa9\xd7\xa0\xd7\x99",                          // Monday
+        "\xd7\x99\xd7\x95\xd7\x9d \xd7\xa9\xd7\x9c\xd7\x99\xd7\xa9\xd7\x99",          // Tuesday
+        "\xd7\x99\xd7\x95\xd7\x9d \xd7\xa8\xd7\x91\xd7\x99\xd7\xa2\xd7\x99",          // Wednesday
+        "\xd7\x99\xd7\x95\xd7\x9d \xd7\x97\xd7\x9e\xd7\x99\xd7\xa9\xd7\x99",          // Thursday
+        "\xd7\x99\xd7\x95\xd7\x9d \xd7\xa9\xd7\x99\xd7\xa9\xd7\x99",                  // Friday
+        "\xd7\xa9\xd7\x91\xd7\xaa",                                                   // Saturday
+    };
+    if (wd < 0 || wd > 6) return names[0];
+    return names[wd];
+}

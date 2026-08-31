@@ -31,11 +31,20 @@ void load_metrics(he_metrics_t *m);
 // and Latin/digit runs keep their internal LTR order. Correct for the shape
 // real text takes here ("מתמטיקה, אנגלית"); nested or bidirectional
 // punctuation will not be perfect.
+// `scale` multiplies every glyph, advance and space -- 2 draws at double size.
+// The blob is a 24x41 bitmap with no larger cut, so this is pixel doubling, not
+// a second face. It looks like exactly what it is at 2x, which on a six-colour
+// panel viewed from across a room is the right trade.
 void draw_line_rtl(const he_metrics_t *m, int right_x, int y, const char *s,
-                   uint32_t colour = TFT_BLACK);
+                   uint32_t colour = TFT_BLACK, int scale = 1);
 
 // Width of a line in pixels, using exactly the rules draw_line_rtl draws with.
-int measure(const he_metrics_t *m, const char *s);
+int measure(const he_metrics_t *m, const char *s, int scale = 1);
+
+// Number of lines draw_wrapped would produce, without drawing any of them.
+// The page needs this to centre a block it has not drawn yet.
+int wrapped_lines(const he_metrics_t *m, int width, const char *text,
+                  int max_lines);
 
 // Draws right-to-left like draw_line_rtl, but never runs off the left edge.
 //
