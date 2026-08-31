@@ -69,11 +69,24 @@ void sdconfig_load(kids_t *kids, schedule_t *sched)
     if (!state_nvs_init()) return;
 
     // Cache first, so a board with no card still knows the names.
-    if (nvs_get_exact(kKeyKids, kids, sizeof *kids))
+    if (nvs_get_exact(kKeyKids, kids, sizeof *kids)) {
         ESP_LOGI(TAG, "kids from cache: %d", kids->count);
-    if (nvs_get_exact(kKeySched, sched, sizeof *sched))
+        // Names and byte lengths, so a name that LOOKS cut on the panel can be
+        // told apart from one that was cut on the way in. Local serial only.
+        for (int i = 0; i < kids->count; i++)
+            ESP_LOGI(TAG, "  kid %d: \"%s\" (%d bytes) birthday %u/%u", i,
+                     kids->kid[i].name, (int)strlen(kids->kid[i].name),
+                     (unsigned)kids->kid[i].birth_day,
+                     (unsigned)kids->kid[i].birth_month);
+    }
+    if (nvs_get_exact(kKeySched, sched, sizeof *sched)) {
         ESP_LOGI(TAG, "schedule from cache: %s",
                  schedule_is_empty(sched) ? "empty" : "present");
+        for (int d = 0; d < SCHED_DAYS; d++)
+            if (sched->line[d][0])
+                ESP_LOGI(TAG, "  day %d: \"%s\" (%d bytes)", d, sched->line[d],
+                         (int)strlen(sched->line[d]));
+    }
 
     if (!sd_mount()) return;            // no card: the cache stands
 

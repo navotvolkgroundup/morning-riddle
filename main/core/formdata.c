@@ -66,20 +66,33 @@ bool form_field(const char *body, const char *name, char *out, size_t out_len)
 
     const char *end = strchr(p, '&');
     const size_t avail = end ? (size_t)(end - p) : strlen(p);
-    size_t n = avail;
-    if (n >= out_len) {
-        n = out_len - 1;
-        // Do not cut inside a percent-escape. "%D7%90%D7" truncated to
-        // "%D7%90%D" decodes to a letter followed by a literal "%D", and a
-        // stray "%D" on a timetable line is not something anyone would guess
-        // came from a length limit.
+
+    // DECODE FIRST, TRUNCATE SECOND. This used to cut the raw value to
+    // out_len-1 and decode afterwards, which measures the wrong thing: a
+    // Hebrew letter costs SIX characters on the wire ("%D7%90") and two in
+    // memory. A 24-byte name buffer therefore held three Hebrew letters, and a
+    // 128-byte timetable line about twenty-one -- so "איתי" was stored as
+    // "אית" and "חשבון, אנגלית, חינוך גופני" lost its last word, silently, on
+    // the way into NVS. The buffers were the right size all along.
+    char scratch[1024];
+    size_t n = avail < sizeof scratch - 1 ? avail : sizeof scratch - 1;
+    if (n < avail) {
+        // Do not cut inside a percent-escape; "%D" decodes to a literal "%D".
         if (n >= 1 && p[n - 1] == '%')      n -= 1;
         else if (n >= 2 && p[n - 2] == '%') n -= 2;
     }
-    memcpy(out, p, n);
-    out[n] = '\0';
+    memcpy(scratch, p, n);
+    scratch[n] = '\0';
 
-    url_decode(out);
+    url_decode(scratch);
+    trim_partial_utf8(scratch);
+
+    size_t decoded = strlen(scratch);
+    if (decoded >= out_len) decoded = out_len - 1;
+    memcpy(out, scratch, decoded);
+    out[decoded] = '\0';
+
+    // Only now can a character be split, and only by the caller's buffer.
     trim_partial_utf8(out);
     return true;
 }

@@ -973,30 +973,43 @@ static int test_formdata(void)
     // that does not fit gets cut mid-letter. What lands must still be valid
     // UTF-8 -- shorter is fine, a lead byte with no continuation is not.
     {
-        char small[8];   // 7 usable bytes: "%D7%90%" truncates inside a letter
+        // TRUNCATION IS MEASURED IN DECODED BYTES, not urlencoded ones. Three
+        // Hebrew letters are 18 characters on the wire and 6 in memory, so they
+        // fit an 8-byte buffer. Measuring the encoded form is what stored
+        // "איתי" as "אית" and cut the last subject off the timetable.
+        char small[8];
         CHECK(form_field("d0=%D7%90%D7%91%D7%92", "d0", small, sizeof small));
-        CHECK(strcmp(small, "\xd7\x90") == 0);
-        for (const char *c = small; *c; c++)
-            CHECK(((unsigned char)*c & 0x80) == 0 || (unsigned char)*c >= 0xC0 ||
-                  ((unsigned char)c[-1] & 0x80));
+        CHECK(strcmp(small, "\xd7\x90\xd7\x91\xd7\x92") == 0);
     }
     {
-        // Cut so the raw text ends on a bare lead byte: that byte must go.
+        // Still truncated when the DECODED text genuinely does not fit, and
+        // still on a character boundary.
+        char small[6];
+        CHECK(form_field("d0=%D7%90%D7%91%D7%92", "d0", small, sizeof small));
+        CHECK(strcmp(small, "\xd7\x90\xd7\x91") == 0);
+    }
+    {
+        // "x" plus one Hebrew letter is 3 decoded bytes; a 4-byte buffer holds
+        // it exactly.
         char small[4];
         CHECK(form_field("d0=x%D7%90", "d0", small, sizeof small));
-        CHECK(strcmp(small, "x") == 0);
+        CHECK(strcmp(small, "x\xd7\x90") == 0);
     }
     {
-        // A three-byte character, with room for exactly one of the two.
-        char small[10];
+        // Two euro signs are 6 decoded bytes; a 7-byte buffer holds both.
+        char small[7];
+        CHECK(form_field("d0=%E2%82%AC%E2%82%AC", "d0", small, sizeof small));
+        CHECK(strcmp(small, "\xe2\x82\xac\xe2\x82\xac") == 0);
+    }
+    {
+        // Room for one: the second is dropped whole, never half.
+        char small[5];
         CHECK(form_field("d0=%E2%82%AC%E2%82%AC", "d0", small, sizeof small));
         CHECK(strcmp(small, "\xe2\x82\xac") == 0);
     }
     {
-        // Too small to hold even one: empty is the right answer. Two of the
-        // three bytes would be a lead with a lone continuation, which is not
-        // a character at all.
-        char tiny[8];
+        // Too small for even one: empty, not a lead byte with no continuation.
+        char tiny[3];
         CHECK(form_field("d0=%E2%82%AC", "d0", tiny, sizeof tiny));
         CHECK(tiny[0] == '\0');
     }

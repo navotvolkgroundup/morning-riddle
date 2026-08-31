@@ -34,6 +34,23 @@ void load_metrics(he_metrics_t *m);
 void draw_line_rtl(const he_metrics_t *m, int right_x, int y, const char *s,
                    uint32_t colour = TFT_BLACK);
 
+// Width of a line in pixels, using exactly the rules draw_line_rtl draws with.
+int measure(const he_metrics_t *m, const char *s);
+
+// Draws right-to-left like draw_line_rtl, but never runs off the left edge.
+//
+// draw_line_rtl walks right to left and simply RETURNS when it runs out of
+// width, so a line that is too long loses its tail with no warning at all.
+// That is how Sunday's timetable came out as "חינוך גופ": the last subject
+// fell off the panel and nothing said so.
+//
+// This measures first. If the line fits it is drawn unchanged. If it does not,
+// whole trailing items are dropped -- at a comma where there is one, otherwise
+// at a space -- and "..." is appended so the reader can see something was cut.
+// Cutting mid-word is never useful; a visibly shortened list is.
+void draw_line_rtl_fit(const he_metrics_t *m, int right_x, int left_limit,
+                       int y, const char *s, uint32_t colour = TFT_BLACK);
+
 // Word-wraps to the given width and draws each line right-aligned.
 // Returns the y below the block, or -1 if it did not fit above `bottom`.
 int draw_wrapped(const he_metrics_t *m, int y, int left_x, int right_x,

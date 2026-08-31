@@ -97,8 +97,9 @@ void page_daily_draw(const page_daily_content &c)
                             DL_CANVAS_W - 2 * DL_MARGIN_X, L.band_h, TFT_BLACK);
 
     if (L.schedule_y != DL_ABSENT)
-        he::draw_line_rtl(m, DL_CANVAS_W - DL_MARGIN_X - DL_BAND_PAD,
-                          L.schedule_y, schedule_for_day(c.sched, c.today));
+        he::draw_line_rtl_fit(m, DL_CANVAS_W - DL_MARGIN_X - DL_BAND_PAD,
+                              DL_MARGIN_X + DL_BAND_PAD,
+                              L.schedule_y, schedule_for_day(c.sched, c.today));
 
     if (L.weather_y != DL_ABSENT) draw_weather(c, L.weather_y);
 
@@ -124,7 +125,8 @@ void page_daily_draw(const page_daily_content &c)
             std::snprintf(line, sizeof line, "%s, \xd7\x96\xd7\x90\xd7\xaa "
                           "\xd7\x91\xd7\xa9\xd7\x91\xd7\x99\xd7\x9c\xd7\x9a",
                           c.kids->kid[who].name);
-            he::draw_line_rtl(m, DL_CANVAS_W - DL_MARGIN_X, L.callout_y, line);
+            he::draw_line_rtl_fit(m, DL_CANVAS_W - DL_MARGIN_X, DL_MARGIN_X,
+                                  L.callout_y, line);
         }
     }
 

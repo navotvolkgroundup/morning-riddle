@@ -52,6 +52,55 @@ void load_metrics(he_metrics_t *m)
     }
 }
 
+int measure(const he_metrics_t *m, const char *s)
+{
+    int w = 0;
+    const char *p = s;
+    uint32_t cp;
+    int n;
+    while ((n = he_utf8_next(p, &cp)) > 0) {
+        if (he_is_letter(cp))        { w += he_glyph_width(m, cp) + HE_GAP; p += n; }
+        else if (cp == ' ')          { w += HE_SPACE; p += n; }
+        else if (cp > 0x20 && cp < 0x7F) {
+            uint32_t c2; int k; const char *q = p; int run = 0;
+            while ((k = he_utf8_next(q, &c2)) > 0 && c2 > 0x20 && c2 < 0x7F) {
+                run++; q += k;
+            }
+            w += run * HE_LAT_W;
+            p = q;
+        } else { p += n; }
+    }
+    return w;
+}
+
+void draw_line_rtl_fit(const he_metrics_t *m, int right_x, int left_limit,
+                       int y, const char *s, uint32_t colour)
+{
+    const int avail = right_x - left_limit;
+    if (avail <= 0 || !s || !*s) return;
+    if (measure(m, s) <= avail) { draw_line_rtl(m, right_x, y, s, colour); return; }
+
+    // Too wide. Walk back to the last comma (or failing that, space) whose
+    // prefix plus "..." fits, so whole subjects drop rather than half a word.
+    char buf[192];
+    const size_t len = strlen(s);
+    size_t cut = len;
+    while (cut > 0) {
+        size_t c = 0;
+        for (size_t i = 0; i < cut; i++) if (s[i] == ',') c = i;
+        if (c == 0) for (size_t i = 0; i < cut; i++) if (s[i] == ' ') c = i;
+        if (c == 0) break;
+        cut = c;
+        if (cut + 4 >= sizeof buf) continue;
+        memcpy(buf, s, cut);
+        strcpy(buf + cut, "...");
+        if (measure(m, buf) <= avail) { draw_line_rtl(m, right_x, y, buf, colour); return; }
+    }
+    // No break point short enough. Draw what fits and let draw_line_rtl clip;
+    // better a partial line than a blank one.
+    draw_line_rtl(m, right_x, y, s, colour);
+}
+
 void draw_line_rtl(const he_metrics_t *m, int right_x, int y, const char *s,
                    uint32_t colour)
 {
