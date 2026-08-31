@@ -293,27 +293,67 @@ void wake_power_off()
     wake_sleep();
 }
 
-bool wake_sleep_if_safe(bool next_is_morning)
+// See wake.hpp. This used to check once and return, which is the bug this
+// replaces.
+[[noreturn]] void wake_sleep_if_safe(bool next_is_morning)
 {
-    // Log all three readings side by side. VBUS is the rail that fooled this
-    // code for a day; 5VINOUT (PM1 0x26/0x27) is the one candidate not yet
-    // ruled out, and a battery boot plus a cabled boot will say whether it
-    // discriminates. Build nothing on it until they do.
-    if (pm1_ready()) {
-        uint16_t vinout = 0;
-        g_pm1.read5VInOut(&vinout);
-        ESP_LOGW(TAG, "cable check: SOF=%s, VBUS=%dmV, 5VINOUT=%umV",
-                 wake_usb_present() ? "YES" : "no",
-                 (int)M5.Power.getVBUSVoltage(), (unsigned)vinout);
-    }
+    // Poll often enough that unplugging the cable puts the board to sleep
+    // while you are still standing next to it. 30s is well under the time it
+    // takes to walk away and wonder whether it worked.
+    constexpr int kPollSecs = 30;
 
-    if (wake_usb_present()) {
-        ESP_LOGW(TAG, "USB attached; staying awake so the board stays flashable");
-        return false;
-    }
-    if (wake_button_held()) {
-        ESP_LOGW(TAG, "button held; staying awake (escape hatch)");
-        return false;
+    // AND SLEEP ANYWAY AFTER THIS, whatever the cable check says.
+    //
+    // 30 minutes is chosen against both things it has to survive. It is longer
+    // than any flash-and-watch cycle -- a build, a flash and a 17s refresh is
+    // three minutes -- so it will not interrupt work. And it is far shorter
+    // than the 6.5 hours between the morning and the reveal, so a board that
+    // trips it on a wall is asleep again long before its next alarm.
+    //
+    // The cost when it fires wrongly is one 30-minute awake period, roughly 4%
+    // of the battery, once. The cost of not having it is a board that stays
+    // awake forever.
+    constexpr int kMaxAwakeSecs = 30 * 60;
+
+    bool said_it = false;
+    for (int waited = 0; ; waited += kPollSecs) {
+        const bool usb = wake_usb_present();
+        const bool btn = wake_button_held();
+        if (!usb && !btn) {
+            if (said_it) ESP_LOGW(TAG, "cable gone after %ds; sleeping", waited);
+            break;
+        }
+        if (waited >= kMaxAwakeSecs) {
+            // WE HAVE BEEN AWAKE TOO LONG TO STILL BE RIGHT. Either the cable
+            // really has been in for half an hour, or the check is stuck --
+            // and the second one is indistinguishable from the first while it
+            // is happening. Sleeping is recoverable; staying awake is not.
+            ESP_LOGE(TAG, "awake %ds with %s still asserted -- sleeping anyway",
+                     waited, usb ? "USB" : "a button");
+            // Deep sleep, not a PM1 power-off, on this path only. We are in a
+            // state we do not understand, and deep sleep comes back on a
+            // button as well as the alarm. A power-off that mis-arms its timer
+            // never comes back at all.
+            wake_sleep();
+        }
+        if (!said_it) {
+            ESP_LOGW(TAG, "%s; staying awake (rechecking every %ds, hard limit %ds)",
+                     usb ? "USB attached, so the board stays flashable"
+                         : "button held (escape hatch)",
+                     kPollSecs, kMaxAwakeSecs);
+            // Log the three readings once, for the record. VBUS is the rail
+            // that fooled this code for a day; 5VINOUT is the one candidate
+            // not yet ruled out.
+            if (pm1_ready()) {
+                uint16_t vinout = 0;
+                g_pm1.read5VInOut(&vinout);
+                ESP_LOGW(TAG, "cable check: SOF=%s, VBUS=%dmV, 5VINOUT=%umV",
+                         usb ? "YES" : "no",
+                         (int)M5.Power.getVBUSVoltage(), (unsigned)vinout);
+            }
+            said_it = true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(kPollSecs * 1000));
     }
 
     // The guess window decides how we sleep. See wake.hpp.

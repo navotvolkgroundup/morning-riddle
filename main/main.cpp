@@ -581,9 +581,8 @@ extern "C" void app_main(void)
     if (!wake_arm_next(time(nullptr), &morning))
         ESP_LOGE(TAG, "ALARM DID NOT ARM -- this board will not wake on its own");
 
-    // No grace period any more: wake_sleep_if_safe() refuses outright while
-    // USB is attached, which is a rule rather than a race. A timed window was
-    // the wrong shape -- it made every reflash a stopwatch exercise.
-    if (!wake_sleep_if_safe(morning != 0))
-        ESP_LOGW(TAG, "staying awake; the page is drawn and the alarm is armed");
+    // Never returns. It waits for the cable to go, then sleeps -- and sleeps
+    // regardless after a hard limit, because a board that stays awake ignores
+    // its buttons and its alarms while looking entirely healthy. See wake.hpp.
+    wake_sleep_if_safe(morning != 0);
 }

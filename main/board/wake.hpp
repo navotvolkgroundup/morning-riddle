@@ -137,7 +137,26 @@ bool wake_was_pm1_rtc();
 //
 // The board is button-wakeable exactly while a button press can still do
 // something, and fully off the rest of the time.
-bool wake_sleep_if_safe(bool next_is_morning);
+// Sleeps as soon as it is safe to, and always eventually sleeps.
+//
+// AN AWAKE BOARD IS A DEAD BOARD, and that is not a figure of speech. Nothing
+// polls the buttons outside the wake path -- app_main reads the wake cause
+// once and returns -- so a board that stays awake ignores every press. The
+// RTC alarm still fires, but it fires at a chip that is already on, so nothing
+// happens. The panel keeps showing a perfectly good page, which is exactly
+// what makes it hard to notice.
+//
+// This used to check the cable ONCE and return false, and that was wrong in
+// the ordinary case long before it was wrong in the paranoid one: unplugging
+// after a flash did not put the board to sleep, because nobody looked again.
+// It stayed awake until the next reset, missed its alarms, and looked fine.
+//
+// So it polls. It sleeps the moment the cable is gone, and it sleeps anyway
+// after a hard limit whatever the check says -- because a cable check that is
+// stuck asserted is indistinguishable, from the inside, from a cable.
+//
+// Never returns.
+[[noreturn]] void wake_sleep_if_safe(bool next_is_morning);
 
 // Deep sleep until the RTC alarm or a button. Does not return. Prefer
 // wake_sleep_if_safe() unless you genuinely mean to sleep regardless.
