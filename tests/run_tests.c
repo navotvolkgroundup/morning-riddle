@@ -441,6 +441,18 @@ static int test_kids_callout(void)
 }
 
 // ---------------------------------------------------------------- weather ---
+
+// The advice strings, by name. Duplicated from weather.c on purpose: a test
+// that imports the value it is checking checks nothing.
+#define ADV_GLOVES   "\xd7\x9e\xd7\xa2\xd7\x99\xd7\x9c \xd7\x95\xd7\x9b\xd7\xa4\xd7\xa4\xd7\x95\xd7\xaa"      // coat and gloves
+#define ADV_RAINCOAT "\xd7\x9e\xd7\xa2\xd7\x99\xd7\x9c \xd7\x92\xd7\xa9\xd7\x9d"                                    // raincoat
+#define ADV_UMBRELLA "\xd7\x9e\xd7\x98\xd7\xa8\xd7\x99\xd7\x99\xd7\x94"                                               // umbrella
+#define ADV_WARMCOAT "\xd7\x9e\xd7\xa2\xd7\x99\xd7\x9c \xd7\x97\xd7\x9d"                                              // warm coat
+#define ADV_COAT     "\xd7\x9e\xd7\xa2\xd7\x99\xd7\x9c"                                                                   // coat
+#define ADV_SWEAT    "\xd7\xa1\xd7\x95\xd7\x95\xd7\x98\xd7\xa9\xd7\x99\xd7\xa8\xd7\x98"                           // sweatshirt
+#define ADV_LONG     "\xd7\xa9\xd7\xa8\xd7\x95\xd7\x95\xd7\x9c \xd7\x90\xd7\xa8\xd7\x95\xd7\x9a"                // long sleeves
+#define ADV_HAT      "\xd7\x9b\xd7\x95\xd7\x91\xd7\xa2 \xd7\x95\xd7\x9e\xd7\x99\xd7\x9d"                          // hat and water
+#define ADV_TSHIRT   "\xd7\x97\xd7\x95\xd7\x9c\xd7\xa6\xd7\x94 \xd7\xa7\xd7\xa6\xd7\xa8\xd7\x94"                // short sleeves
 //
 // The fixture is a REAL open-meteo response captured on 2026-08-26, not a
 // hand-written one. Hand-written fixtures encode what you believe the API
@@ -522,6 +534,66 @@ static int test_weather_icons(void)
     for (uint32_t c = 0; c <= 120; c++) CHECK(wmo_icon((uint16_t)c) != NULL);
     CHECK(strcmp(wmo_label(0), "clear") == 0);
     CHECK(strcmp(wmo_label(7), "?")     == 0);
+    return 0;
+}
+
+static int test_weather_advice(void)
+{
+    weather_t w;
+    memset(&w, 0, sizeof w);
+
+    // Precipitation outranks temperature: a warm rainy morning is an umbrella
+    // morning, not a t-shirt morning. This is the branch that matters most --
+    // a child told "t-shirt" in the rain stops reading the panel.
+    w.temp_x10 = 260;
+    w.wmo = 61;  CHECK(strcmp(weather_advice_he(&w), ADV_UMBRELLA)  == 0);
+    w.wmo = 95;  CHECK(strcmp(weather_advice_he(&w), ADV_RAINCOAT)  == 0);
+    w.wmo = 73;  CHECK(strcmp(weather_advice_he(&w), ADV_GLOVES)    == 0);
+
+    // Temperature bands, on their boundaries. Each is the first value that
+    // selects its band, so an off-by-one in either direction fails here.
+    w.wmo = 0;
+    w.temp_x10 =  99; CHECK(strcmp(weather_advice_he(&w), ADV_WARMCOAT) == 0);
+    w.temp_x10 = 100; CHECK(strcmp(weather_advice_he(&w), ADV_COAT)     == 0);
+    w.temp_x10 = 149; CHECK(strcmp(weather_advice_he(&w), ADV_COAT)     == 0);
+    w.temp_x10 = 150; CHECK(strcmp(weather_advice_he(&w), ADV_SWEAT)    == 0);
+    w.temp_x10 = 189; CHECK(strcmp(weather_advice_he(&w), ADV_SWEAT)    == 0);
+    w.temp_x10 = 190; CHECK(strcmp(weather_advice_he(&w), ADV_LONG)     == 0);
+    w.temp_x10 = 239; CHECK(strcmp(weather_advice_he(&w), ADV_LONG)     == 0);
+    w.temp_x10 = 240; CHECK(strcmp(weather_advice_he(&w), ADV_TSHIRT)   == 0);
+    w.temp_x10 = -50; CHECK(strcmp(weather_advice_he(&w), ADV_WARMCOAT) == 0);
+
+    // The hot-afternoon override, and the trap under it: the daily block is
+    // optional, so hi_x10 is zero whenever it was absent. A zero high must not
+    // read as a cold afternoon, and must not suppress the hat either.
+    w.temp_x10 = 280; w.hi_x10 = 340; CHECK(strcmp(weather_advice_he(&w), ADV_HAT)    == 0);
+    w.temp_x10 = 280; w.hi_x10 = 300; CHECK(strcmp(weather_advice_he(&w), ADV_TSHIRT) == 0);
+    w.temp_x10 = 280; w.hi_x10 =   0; CHECK(strcmp(weather_advice_he(&w), ADV_TSHIRT) == 0);
+    // Already hotter than the forecast high: trust what is measured.
+    w.temp_x10 = 330; w.hi_x10 = 320; CHECK(strcmp(weather_advice_he(&w), ADV_TSHIRT) == 0);
+
+    CHECK(weather_advice_he(NULL)[0] == '\0');
+
+    // EVERY STRING MUST FIT THE LINE IT SHARES WITH THE TEMPERATURE.
+    //
+    // draw_line_rtl_fit elides an over-long line at its last space and appends
+    // "..." -- which on this line lands exactly on the advice, turning "coat
+    // and gloves" into "...". That failure is silent, only visible on the one
+    // morning it matters, and 15 seconds of refresh away from being noticed.
+    //
+    // Measured at HE_W, the widest cell in the font, so a pass here holds for
+    // every real glyph. The budget is the band's inner width, and "-10C " is
+    // the widest temperature this board will ever print.
+    const char *all[] = { ADV_UMBRELLA, ADV_RAINCOAT, ADV_GLOVES, ADV_WARMCOAT,
+                          ADV_COAT, ADV_SWEAT, ADV_LONG, ADV_HAT, ADV_TSHIRT };
+    he_metrics_t widest;
+    for (int i = 0; i < HE_NGLYPH; i++) widest.width[i] = HE_W;
+    const int budget = DL_CANVAS_W - 2 * (DL_MARGIN_X + DL_BAND_PAD);
+    const int temp_w = 4 * HE_LAT_W + HE_SPACE;               // "-10C" plus its space
+    for (unsigned i = 0; i < sizeof all / sizeof all[0]; i++) {
+        CHECK(all[i][0] != '\0');
+        CHECK(he_measure(&widest, all[i]) + temp_w <= budget);
+    }
     return 0;
 }
 
@@ -1040,6 +1112,7 @@ int main(void)
         { "kids_callout",    test_kids_callout },
         { "weather_parse",     test_weather_parse },
         { "weather_icons",     test_weather_icons },
+        { "weather_advice",    test_weather_advice },
         { "weather_staleness", test_weather_staleness },
         { "schedule_weekday",  test_schedule_weekday },
         { "schedule_parse",    test_schedule_parse },

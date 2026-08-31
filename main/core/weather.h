@@ -59,6 +59,29 @@ const char *wmo_icon(uint16_t code);
 // Short English label for the same code, for the wake log and diagnostics.
 const char *wmo_label(uint16_t code);
 
+// What to wear today, in Hebrew, for a child getting dressed for school.
+//
+// A NUMBER IS NOT ADVICE. "19.4C partly cloudy" asks a seven-year-old to know
+// what nineteen degrees feels like on the way to school, which is a thing
+// adults learn slowly and children do not know at all. The panel already has
+// the number; this turns it into the one decision they actually have to make.
+//
+// KEYED ON THE CURRENT TEMPERATURE, not the day's high, because the morning
+// fetch happens at 06:30 and what matters is the air they walk out into. A
+// January morning at 10C under an 18C afternoon needs a coat; advising from
+// the high would send them out cold. The high is consulted only to add a hat
+// and water to an already-warm morning, which is the one case where the
+// afternoon is the hazard.
+//
+// PRECIPITATION OUTRANKS TEMPERATURE. Being wet is worse than being slightly
+// wrongly dressed, and a child who reads "t-shirt" on a rainy morning learns
+// to stop reading the panel.
+//
+// Returns a static string, never NULL. Kept SHORT on purpose -- it shares one
+// 356px line with the temperature, and a line that overflows is elided with
+// "..." exactly where the advice is.
+const char *weather_advice_he(const weather_t *w);
+
 // Parses an open-meteo forecast response. Fills everything except
 // fetched_at, which the caller stamps because only it knows the clock.
 // Returns false if the document is unusable; *out is untouched on failure so

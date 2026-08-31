@@ -50,25 +50,32 @@ void draw_header(const page_daily_content &c)
 void draw_weather(const page_daily_content &c, int y)
 {
     if (!c.wx) return;
+
+    // WHOLE DEGREES, AND HEBREW. This line used to read "19.4C partly cloudy
+    // 24/17", which is four facts and no decision. The tenth of a degree was
+    // never actionable, the English label was unreadable to the audience, and
+    // the high/low asked the reader to do the inference themselves. What
+    // replaces them is the inference: the temperature they are walking out
+    // into, and what to put on.
+    //
+    // Rounded rather than truncated -- 19.6C shown as 19 is wrong by more than
+    // the digit it saves.
+    const int t10 = c.wx->temp_x10;
     char line[64];
-    int n = std::snprintf(line, sizeof line, "%d.%dC  %s",
-                          c.wx->temp_x10 / 10, std::abs(c.wx->temp_x10 % 10),
-                          wmo_label(c.wx->wmo));
-    if ((c.wx->hi_x10 || c.wx->lo_x10) && n > 0 && n < (int)sizeof line)
-        std::snprintf(line + n, sizeof line - n, "   %d/%d",
-                      c.wx->hi_x10 / 10, c.wx->lo_x10 / 10);
+    std::snprintf(line, sizeof line, "%dC %s",
+                  (t10 + (t10 < 0 ? -5 : 5)) / 10, weather_advice_he(c.wx));
 
-    ui_canvas().setTextColor(TFT_BLACK);
-    ui_canvas().setTextSize(2);
-    ui_canvas().drawString(line, DL_MARGIN_X + DL_BAND_PAD, y + 8);
+    // STALENESS IS THE COLOUR, NOT A WORD. This used to draw "old" in red at
+    // the left end, which is clearer in isolation and cost 74px of the one
+    // line the advice has to fit into -- enough to elide "coat and gloves"
+    // down to "..." on exactly the morning it matters. The whole line goes red
+    // instead: unmistakable on an otherwise black page, and free.
+    const uint32_t colour = weather_is_stale(c.wx, c.now_utc) ? TFT_RED : TFT_BLACK;
 
-    // Say so when it is old, in red. A confidently wrong temperature is worse
-    // than an obviously stale one, and the fetch fails silently by design.
-    if (weather_is_stale(c.wx, c.now_utc)) {
-        ui_canvas().setTextColor(TFT_RED);
-        ui_canvas().drawString("old", DL_CANVAS_W - DL_MARGIN_X - 50, y + 8);
-        ui_canvas().setTextColor(TFT_BLACK);
-    }
+    // RTL from the right edge of the band: the temperature lands rightmost --
+    // first, in Hebrew reading order -- and the advice follows it leftwards.
+    he::draw_line_rtl_fit(metrics(), DL_CANVAS_W - DL_MARGIN_X - DL_BAND_PAD,
+                          DL_MARGIN_X + DL_BAND_PAD, y, line, colour);
 }
 
 }  // namespace
