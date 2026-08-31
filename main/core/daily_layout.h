@@ -33,28 +33,41 @@ extern "C" {
 #define DL_BODY_BOTTOM (DL_CANVAS_H - 8)
 
 #define DL_HDR_Y         8
-#define DL_HDR_RULE_Y   40
-#define DL_LINE_H       41      // one Hebrew text line
-#define DL_BAND_PAD      8
-#define DL_ZONE_GAP      6
+#define DL_LINE_H       41      // one body line
+#define DL_SMALL_H      24      // one small-face line (dateline, labels)
+#define DL_BAND_PAD      4
+#define DL_ZONE_GAP      7
+
+// THE MASTHEAD RULE. Thick, because it is the one division on the page that
+// separates the paper's identity from the paper's contents. Every other rule
+// here is a hairline; the lead gets 2px. Three weights of rule is how a page
+// says "major, minor, minor" without a second type size.
+#define DL_HDR_RULE_Y   42
+#define DL_HDR_RULE_H    3
+#define DL_HAIR          1
+#define DL_LEAD_RULE_H   2
 
 // A wrapped question (two lines, 82) plus three choices (~64 each, 192) is
-// 274. The worst case -- every zone present -- leaves 291, so this fires
+// 274. The worst case -- every zone present -- leaves 307, so this fires
 // before a riddle clips rather than after someone notices one did.
 #define DL_RIDDLE_MIN_H 280
 
-// APPROACH C, and the one number the wall decides.
+// ZERO, AND THE HEADER ALREADY SAID THIS WAS A CONSTANT CHANGE IF WRONG.
 //
-// The design weights the riddle low so the utility band sits at an adult's
-// natural gaze and the riddle at a child's. With few zones present the riddle
-// would otherwise start around y=46 and the separation disappears.
+// This was 200: a floor that weighted the riddle low so the utility band sat
+// at an adult's gaze and the riddle at a child's. The floor is now doing harm
+// rather than good, for two reasons.
 //
-// 200 is a third of the panel, scaled from the Waveshare board's 265 of 800.
-// If the board ends up hung LOW the advantage inverts, and the fix is to set
-// this to 0: the riddle then follows the utility zones directly. That is the
-// whole change -- which is what the design meant by "a constant change if
-// wrong", and it is live again now that the page is portrait.
-#define DL_RIDDLE_TOP_MIN 200
+// The page draws a rule above the lead. With a floor, a sparse day put that
+// rule 50px below the band with nothing in between -- an empty ruled band,
+// which on a page that is trying to look like a newspaper reads as a story
+// that failed to load, not as breathing room.
+//
+// And the goal survives without it: page_daily now measures the riddle block
+// and centres it in whatever space is left, so on a sparse day the riddle
+// lands mid-panel anyway. Centring does what the floor was for, and does it
+// from the block's real height instead of a guess.
+#define DL_RIDDLE_TOP_MIN 0
 
 typedef struct {
     bool schedule;      // today has subjects (weekends usually do not)
@@ -64,11 +77,13 @@ typedef struct {
 } daily_flags_t;
 
 typedef struct {
-    int band_y, band_h;     // bordered utility band; band_h 0 when empty
+    int band_y, band_h;     // hairline-ruled facts band; band_h 0 when empty
     int schedule_y;
     int weather_y;
-    int birthday_y;
+    int birthday_label_y;   // "birthday" in small; DL_ABSENT with birthday_y
+    int birthday_y;         // the name, in body
     int callout_y;
+    int lead_rule_y;        // rule above the lead; always placed
     int riddle_top;         // first y the riddle may use
     int riddle_h;           // riddle_top .. DL_BODY_BOTTOM
 } daily_layout_t;

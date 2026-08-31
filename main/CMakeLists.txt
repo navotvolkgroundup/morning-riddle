@@ -50,4 +50,5 @@ idf_component_register(
         esp_http_server
     EMBED_FILES
         "ui/font24HE.FON"
+        "ui/font16HE.FON"
 )

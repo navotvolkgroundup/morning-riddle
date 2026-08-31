@@ -10,11 +10,14 @@
 
 namespace {
 
-// Three choices at 56 plus an 8px gap is 192; a two-line question is 82. That
-// is 274 against the 291 the worst-case layout leaves, which is why
-// DL_RIDDLE_MIN_H is 280 and not a rounder, more comfortable number.
-constexpr int kChoiceH   = 56;
+// Three choices at 52 plus an 8px gap is 172; a two-line question is 82. That
+// is 254 against the 307 the worst-case layout now leaves.
+constexpr int kChoiceH   = 52;
 constexpr int kChoiceGap = 8;
+
+// The paper's name. It is the one piece of text on this page that never
+// changes, which is exactly what a nameplate is.
+#define NAMEPLATE "\xd7\x97\xd7\x99\xd7\x93\xd7\xaa \xd7\x94\xd7\x91\xd7\x95\xd7\xa7\xd7\xa8"   // "the morning riddle"
 
 // The answer is drawn at double size. See the draw site for why, and hebrew.hpp
 // for what pixel doubling a 24x41 blob actually looks like.
@@ -31,38 +34,44 @@ const he_metrics_t *metrics()
 
 void draw_header(const page_daily_content &c)
 {
-    ui_canvas().setTextColor(TFT_BLACK);
-    ui_canvas().setTextSize(2);
-    if (c.date) ui_canvas().drawString(c.date, DL_MARGIN_X, DL_HDR_Y);
-
-    // THE DAY NAME, IN HEBREW, AT THE RIGHT -- where an RTL page begins.
+    // THE MASTHEAD, ON ONE LINE: nameplate right, dateline left.
     //
-    // Drawn at y=0 rather than DL_HDR_Y, and that is not a fudge: ink occupies
-    // rows 5..37 of the 41px cell, so a cell at y=0 puts its ink at 5..37 and
-    // clears the rule at DL_HDR_RULE_Y=40 by two pixels. That is what makes
-    // this free -- the header keeps its 40px and the riddle budget below is
-    // untouched, which matters because the worst-case layout (timetable,
-    // weather, birthday and callout together) already sits 11px above
-    // DL_RIDDLE_MIN_H. A taller header would have broken it on birthdays.
-    const int wd_right = DL_CANVAS_W - DL_MARGIN_X;
-    const char *wd = schedule_weekday_he(schedule_weekday(c.today));
-    he::draw_line_rtl(metrics(), wd_right, 0, wd);
+    // Stacking them the way a broadsheet does would cost 41px the crowded days
+    // do not have. Flanking works because the two are different sizes -- which
+    // is the whole reason the small face was cut -- so they read as nameplate
+    // and dateline rather than as two competing headings.
+    //
+    // Drawn at y=0, not DL_HDR_Y, and that is measured rather than fudged: ink
+    // occupies rows 5..37 of the 41px body cell, so a cell at y=0 lands its ink
+    // at 5..37 and clears the rule at DL_HDR_RULE_Y=42 by five pixels.
+    he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, 0, NAMEPLATE);
 
-    // The streak is address, not information -- the page telling its reader it
-    // has been paying attention. Below two days there is nothing to say.
-    // In Hebrew now: "4 days" was English on a page for children who are
-    // learning to read Hebrew, printed in the one spot meant to speak to them.
-    if (c.streak > 1) {
-        char s[32];
-        std::snprintf(s, sizeof s, "%u \xd7\x99\xd7\x9e\xd7\x99\xd7\x9d",   // "N days"
+    // "יום שני · 31.08 · גיליון 4"
+    //
+    // THE STREAK IS THE ISSUE NUMBER. It used to be "4 days" in the corner,
+    // which is a scoreboard, and a scoreboard invites a child to feel behind.
+    // A daily paper numbers its issues, and this genuinely is issue four --
+    // the fourth consecutive morning this thing published. Same number, and it
+    // now reads as the paper's history rather than the reader's score.
+    //
+    // Below two it says nothing: "issue 1" is not a boast, it is an admission.
+    char dl[64];
+    int n = std::snprintf(dl, sizeof dl, "%s \xc2\xb7 %s",
+                          schedule_weekday_he(schedule_weekday(c.today)),
+                          c.date ? c.date : "");
+    if (c.streak > 1 && n > 0 && n < (int)sizeof dl)
+        std::snprintf(dl + n, sizeof dl - n,
+                      " \xc2\xb7 \xd7\x92\xd7\x99\xd7\x9c\xd7\x99\xd7\x95\xd7\x9f %u",  // "issue N"
                       (unsigned)c.streak);
-        // Right-aligned against the day name's left edge, measured rather than
-        // guessed, so a long day name ("Wednesday") cannot collide with it.
-        he::draw_line_rtl(metrics(), wd_right - he::measure(metrics(), wd) - 14, 0, s);
-    }
+    // Left-flag position, so it sits opposite the nameplate rather than under
+    // it. Measured, not guessed, because the day name and the issue number both
+    // change width.
+    he::draw_line_rtl(he::small(),
+                      DL_MARGIN_X + he::measure(he::small(), dl), 9, dl);
 
-    ui_canvas().drawFastHLine(DL_MARGIN_X, DL_HDR_RULE_Y,
-                             DL_CANVAS_W - 2 * DL_MARGIN_X, TFT_BLACK);
+    ui_canvas().fillRect(DL_MARGIN_X, DL_HDR_RULE_Y,
+                         DL_CANVAS_W - 2 * DL_MARGIN_X, DL_HDR_RULE_H,
+                         TFT_BLACK);
 }
 
 void draw_weather(const page_daily_content &c, int y)
@@ -90,10 +99,10 @@ void draw_weather(const page_daily_content &c, int y)
     // instead: unmistakable on an otherwise black page, and free.
     const uint32_t colour = weather_is_stale(c.wx, c.now_utc) ? TFT_RED : TFT_BLACK;
 
-    // RTL from the right edge of the band: the temperature lands rightmost --
-    // first, in Hebrew reading order -- and the advice follows it leftwards.
-    he::draw_line_rtl_fit(metrics(), DL_CANVAS_W - DL_MARGIN_X - DL_BAND_PAD,
-                          DL_MARGIN_X + DL_BAND_PAD, y, line, colour);
+    // RTL from the right edge: the temperature lands rightmost -- first, in
+    // Hebrew reading order -- and the advice follows it leftwards.
+    he::draw_line_rtl_fit(he::body(), DL_CANVAS_W - DL_MARGIN_X, DL_MARGIN_X,
+                          y, line, colour);
 }
 
 }  // namespace
@@ -117,43 +126,58 @@ void page_daily_draw(const page_daily_content &c)
 
     draw_header(c);
 
-    if (L.band_h > 0)
-        ui_canvas().drawRect(DL_MARGIN_X, L.band_y,
-                            DL_CANVAS_W - 2 * DL_MARGIN_X, L.band_h, TFT_BLACK);
+    // RULES, NOT A BOX. A bordered rectangle around the timetable and the
+    // weather made them look like a form to be filled in; two hairlines make
+    // them look like a column to be read. Same pixels, opposite reading.
+    if (L.band_h > 0) {
+        const int w = DL_CANVAS_W - 2 * DL_MARGIN_X;
+        ui_canvas().fillRect(DL_MARGIN_X, L.band_y, w, DL_HAIR, TFT_BLACK);
+        ui_canvas().fillRect(DL_MARGIN_X, L.band_y + L.band_h - DL_HAIR, w,
+                             DL_HAIR, TFT_BLACK);
+    }
 
+    // Full margin-to-margin now: with no box there is no border to sit inside,
+    // and the timetable gets DL_BAND_PAD*2 more width -- which is exactly the
+    // line that has been eliding subjects.
     if (L.schedule_y != DL_ABSENT)
-        he::draw_line_rtl_fit(m, DL_CANVAS_W - DL_MARGIN_X - DL_BAND_PAD,
-                              DL_MARGIN_X + DL_BAND_PAD,
-                              L.schedule_y, schedule_for_day(c.sched, c.today));
+        he::draw_line_rtl_fit(he::body(), DL_CANVAS_W - DL_MARGIN_X,
+                              DL_MARGIN_X, L.schedule_y,
+                              schedule_for_day(c.sched, c.today));
 
     if (L.weather_y != DL_ABSENT) draw_weather(c, L.weather_y);
 
+    // A small standing head over the name, instead of two body lines saying
+    // the same thing at the same weight. The label is the same every year; the
+    // name is the news.
     if (L.birthday_y != DL_ABSENT) {
-        int who = kids_birthday_on(c.kids, c.month, c.day);
-        ui_canvas().drawRect(DL_MARGIN_X, L.birthday_y,
-                            DL_CANVAS_W - 2 * DL_MARGIN_X,
-                            2 * HE_H + 16, TFT_RED);
-        // Red, and the only place colour carries meaning rather than decorating.
-        he::draw_line_rtl(m, DL_CANVAS_W - DL_MARGIN_X - 12, L.birthday_y + 8,
-                          "\xd7\x99\xd7\x95\xd7\x9d \xd7\x94\xd7\x95\xd7\x9c\xd7\x93\xd7\xaa "
-                          "\xd7\xa9\xd7\x9e\xd7\x97", TFT_RED);
+        const int who = kids_birthday_on(c.kids, c.month, c.day);
+        he::draw_line_rtl(he::small(), DL_CANVAS_W - DL_MARGIN_X,
+                          L.birthday_label_y,
+                          "\xd7\x99\xd7\x95\xd7\x9d \xd7\x94\xd7\x95\xd7\x9c\xd7\x93\xd7\xaa",  // "birthday"
+                          TFT_RED);
         if (who >= 0)
-            he::draw_line_rtl(m, DL_CANVAS_W - DL_MARGIN_X - 12,
-                              L.birthday_y + 8 + HE_H, c.kids->kid[who].name,
-                              TFT_RED);
+            he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X,
+                              L.birthday_y, c.kids->kid[who].name, TFT_RED);
     }
 
     if (L.callout_y != DL_ABSENT) {
-        int who = kids_pick_callout(c.kids, c.today);
+        const int who = kids_pick_callout(c.kids, c.today);
         if (who >= 0) {
             char line[KID_NAME_MAX + 24];
             std::snprintf(line, sizeof line, "%s, \xd7\x96\xd7\x90\xd7\xaa "
                           "\xd7\x91\xd7\xa9\xd7\x91\xd7\x99\xd7\x9c\xd7\x9a",
                           c.kids->kid[who].name);
-            he::draw_line_rtl_fit(m, DL_CANVAS_W - DL_MARGIN_X, DL_MARGIN_X,
-                                  L.callout_y, line);
+            he::draw_line_rtl_fit(he::body(), DL_CANVAS_W - DL_MARGIN_X,
+                                  DL_MARGIN_X, L.callout_y, line);
         }
     }
+
+    // The rule above the lead. Thinner than the masthead's, thicker than the
+    // band's hairlines: three weights is how the page says "major, minor,
+    // minor" without a fourth type size.
+    ui_canvas().fillRect(DL_MARGIN_X, L.lead_rule_y,
+                         DL_CANVAS_W - 2 * DL_MARGIN_X, DL_LEAD_RULE_H,
+                         TFT_BLACK);
 
     // THE RIDDLE BLOCK, CENTRED IN WHAT IS LEFT.
     //
@@ -191,8 +215,8 @@ void page_daily_draw(const page_daily_content &c)
         // timetable entry. Pixel doubling of a 24x41 blob is coarse up close
         // and unmistakable from the far side of a room, which is the trade
         // this page wants.
-        he::draw_line_rtl(m, DL_CANVAS_W - DL_MARGIN_X, y, c.answer, TFT_RED,
-                          kAnswerScale);
+        he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, y, c.answer,
+                          TFT_RED, kAnswerScale);
     } else if (c.has_choices) {
         y += 12;
         for (int i = 0; i < 3; i++) {
@@ -209,7 +233,7 @@ void page_daily_draw(const page_daily_content &c)
             // which is correct and was correct before -- and the letters only
             // ever contradicted it. It also takes the last Latin off a Hebrew
             // page and gives each choice back 34px of line.
-            he::draw_line_rtl(m, DL_CANVAS_W - DL_MARGIN_X, y,
+            he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, y,
                               c.choices[i] ? c.choices[i] : "");
             y += kChoiceH + kChoiceGap;
         }

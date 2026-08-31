@@ -906,6 +906,19 @@ static int test_daily_layout(void)
         CHECK(f.callout  == (L.callout_y  != DL_ABSENT));
         CHECK(f.birthday == (L.birthday_y != DL_ABSENT));
 
+        // The birthday label is placed exactly with the birthday name.
+        CHECK((L.birthday_label_y != DL_ABSENT) == (L.birthday_y != DL_ABSENT));
+        if (L.birthday_y != DL_ABSENT)
+            CHECK(L.birthday_y >= L.birthday_label_y + DL_SMALL_H);
+
+        // The lead rule is always placed, always below every zone, and always
+        // above the riddle. An empty ruled band is the failure this replaced.
+        CHECK(L.lead_rule_y != DL_ABSENT);
+        CHECK(L.riddle_top >= L.lead_rule_y + DL_LEAD_RULE_H);
+        if (L.callout_y  != DL_ABSENT) CHECK(L.lead_rule_y >= L.callout_y + DL_LINE_H);
+        if (L.birthday_y != DL_ABSENT) CHECK(L.lead_rule_y >= L.birthday_y + DL_LINE_H);
+        if (L.band_h > 0)              CHECK(L.lead_rule_y >= L.band_y + L.band_h);
+
         // Nothing starts above the header rule; nothing runs off the page.
         if (L.schedule_y != DL_ABSENT) CHECK(L.schedule_y > DL_HDR_RULE_Y);
         if (L.weather_y  != DL_ABSENT) CHECK(L.weather_y  > DL_HDR_RULE_Y);
@@ -961,9 +974,16 @@ static int test_daily_layout(void)
     CHECK(Le.riddle_h   >= Lf.riddle_h);
     CHECK(Le.band_h == 0);
 
-    // Approach C: the riddle sits at child height however few zones exist.
-    // Without the floor an empty page would start it around y=46.
-    CHECK(Le.riddle_top == DL_RIDDLE_TOP_MIN);
+    // NO ORPHAN BAND. This used to assert the riddle floor (200) held on an
+    // empty page. The floor is gone, and this is the property that replaced
+    // it: on a page with nothing to say, the lead rule sits immediately below
+    // the masthead rather than 50px under it with nothing in between. That gap
+    // was a ruled band containing nothing, which reads as a story that failed
+    // to load. Vertical placement of the riddle is page_daily's job now -- it
+    // centres the measured block -- not a constant's.
+    CHECK(Le.band_h == 0);
+    CHECK(Le.lead_rule_y == DL_HDR_RULE_Y + DL_HDR_RULE_H + DL_ZONE_GAP);
+    CHECK(Le.riddle_top == Le.lead_rule_y + DL_LEAD_RULE_H + 10);
 
     // A birthday does NOT suppress the callout here -- portrait has the room.
     daily_flags_t both = { true, true, true, true };
@@ -972,9 +992,10 @@ static int test_daily_layout(void)
     CHECK(Lt.callout_y != DL_ABSENT);
     CHECK(Lt.birthday_y != DL_ABSENT);
 
-    // Enough zones must push the riddle past the floor, or the floor would be
-    // masking every reflow bug below it.
-    CHECK(Lt.riddle_top > DL_RIDDLE_TOP_MIN);
+    // Zones must actually push the page down, or a reflow bug that ignored
+    // them entirely would still pass everything above.
+    CHECK(Lt.riddle_top > Le.riddle_top);
+    CHECK(Lt.lead_rule_y > Le.lead_rule_y);
 
     // NULL flags behave as the empty page.
     daily_layout_t Ln;
