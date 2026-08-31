@@ -68,7 +68,7 @@ second weight, no italic, no small caps.
 |---|---|---|---|
 | Body | New Peninim MT 40pt | 24×41 | Question, choices, answer, timetable, turn line |
 | Small | New Peninim MT 22pt | 16×24 | Dateline, folio, kickers, birthday label, streak |
-| Display | Body at scale 2 | 48×82 | The revealed answer, and the drop cap |
+| Display | Body at scale 2 | 48×82 | The revealed answer |
 
 Both cuts come from `gen_hebrew_fon.py` — same face, same generator, so they
 are one family rather than two fonts. 16×22 was tried and rejected: its stems
@@ -98,7 +98,7 @@ and white, and to a colour-blind child.
 |---|---|---|
 | Black | Everything | Body, rules, the reversed bar's ground |
 | White | The paper | Reversed type; skipped when blitting a picture |
-| Red | The paper's own voice, and the payoff | Nameplate, drop cap, revealed answer, birthday, kickers |
+| Red | The paper's own voice, and the payoff | Nameplate, revealed answer, birthday, kickers |
 | Blue | Wet or cold | Weather advice, rain and snow marks |
 | Yellow | Heat, and sun | Weather advice at 30 °C+, the sun symbol |
 | Green | Unused | — |
@@ -142,7 +142,7 @@ that box mean something.
 ──────────────────────────────────────   hairline
 נגה, זאת בשבילך        5 פעמים ברצף      whose turn, with their run
 ══════════════════════════════════════   2px, the lead rule
-מה יש לו שיניים ואף פעם לא נושך?        the lead, drop cap on the first letter
+מה יש לו שיניים ואף פעם לא נושך?        the lead
 ──────────────────────────────────────
 מסרק                                     ruled choices, one per button
 ──────────────────────────────────────
@@ -227,6 +227,12 @@ both look composed rather than one looking unfinished.
   variable headline at any size.
 - **Furniture that costs a feature.** The folio's 31px is what put the picture
   band out of reach on an ordinary day. See below.
+- **Importing a convention from another writing system.** A drop cap shipped on
+  the lead. It descends from illuminated manuscripts and capital letters;
+  Hebrew has no case and Hebrew papers do not set initials. It also split a
+  word — "מה" opened as a large red "מ" and a separate "ה יש לו". The tell was
+  a native reader asking why there was a big מ on the screen. If the first
+  thing a page prompts is "what is that", it is not decoration.
 
 ---
 

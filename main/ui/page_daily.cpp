@@ -321,10 +321,6 @@ void page_daily_draw(const page_daily_content &c)
     // being looked at.
     //
     // The rule: a question that fits two lines at double size gets double
-    // size. Most do not, and those are set at reading size with a drop cap,
-    // which is what you give a lead that cannot be big. So the two devices are
-    // alternatives rather than decoration, and the page genuinely differs from
-    // one morning to the next.
     const int riddle_w = DL_CANVAS_W - 2 * DL_MARGIN_X;
     const char *q = c.question ? c.question : "";
 
@@ -343,57 +339,27 @@ void page_daily_draw(const page_daily_content &c)
         below_h = 10 + 3 * (DL_HAIR + 9 + DL_LINE_H + 9) + DL_HAIR;
     }
 
-    // NO VARIABLE LEAD SIZE, AND IT IS THE GEOMETRY THAT SAYS SO.
+    // NO DROP CAP, AND NO VARIABLE LEAD SIZE. Both were tried; both were wrong
+    // for different reasons, and the reasons are worth keeping.
     //
-    // A front page varies its headline size by the day, and that was the plan.
-    // It cannot happen here, and the numbers are not close. Three physical
-    // buttons mean three vertical choice rows; that block is a fixed 191px of
-    // a 301px riddle zone, leaving 110px for the lead. One line at double size
-    // is 70px and would fit -- except that ZERO of the thirty-two questions in
-    // the batch fit one line at 186px, which is what double size costs in
-    // width. Eight fit two lines, and two lines is 140px.
+    // THE DROP CAP WAS A WESTERN CONVENTION IMPORTED WITHOUT CHECKING. It
+    // descends from illuminated manuscripts and capital letters, and Hebrew
+    // typography has neither -- Hebrew has no case, and Hebrew papers do not
+    // set initials. Worse, it split a word: "מה" opened the page as a large
+    // red "מ" followed by a separate "ה יש לו", which reads as a broken word
+    // rather than a device. The tell was a native reader asking why there was
+    // a big מ on the screen. If the first thing a page prompts is "what is
+    // that", it is not decoration, it is damage.
     //
-    // Squeezing the choices to 3px of padding would buy it on 8 mornings in
-    // 32. That is a tighter page every day for a feature that fires a quarter
-    // of the time, and it is the third thing today that would have shipped as
-    // code that never runs.
-    //
-    // WHAT VARIES INSTEAD IS THE PICTURE BAND, and it already does: the block
-    // is measured and centred, so a short question leaves slack the band takes
-    // and a long one does not. Short mornings get an illustration, long ones
-    // get more words. That is the composition, and it is content-driven, which
-    // is what "composed per edition" actually needed to mean.
-    const int lead_scale = 1;
-    int q_lines = 0;
+    // A VARIABLE HEADLINE SIZE cannot happen at these choice rows. Three
+    // physical buttons mean three vertical rows; at 60px each that block is
+    // 191px of a 301px zone, leaving 110px for the lead, and two lines at
+    // double size is 140. Eight of the thirty-two questions would fit if the
+    // rows were tightened to 48px, which also buys the picture band back --
+    // that is a real proposal and it is not this commit.
+    const int q_lines = he::wrapped_lines(m, riddle_w, q, 5);
 
-    // The drop cap. It is the first LETTER of a word, so any real gap after it
-    // makes the remainder read as a separate token -- Hebrew "מה" broken as
-    // "מ ה" is not a typographic device, it is a spelling mistake.
-    char cap[8] = {0};
-    int cap_w = 0;
-    {
-        uint32_t cp;
-        const int n = he_utf8_next(q, &cp);
-        // Only Hebrew letters. A question opening on a digit or a quote gives a
-        // cap that reads as a stray mark.
-        if (n > 0 && n < (int)sizeof cap && he_is_letter(cp)) {
-            std::memcpy(cap, q, (size_t)n);
-            cap_w = he::measure(he::body(), cap, kAnswerScale) + 2;
-            q += n;
-            while (*q == ' ') q++;
-        }
-    }
-
-    const int first_w  = riddle_w - cap_w;
-    const int first_len = cap_w ? he_line_break(m, q, first_w) : 0;
-    const char *tail = q + first_len;
-    while (*tail == ' ') tail++;
-    const int tail_lines = cap_w ? he::wrapped_lines(m, riddle_w, tail, 4) : 0;
-    if (lead_scale == 1)
-        q_lines = cap_w ? (1 + tail_lines) : he::wrapped_lines(m, riddle_w, q, 5);
-
-    const int line_h = (HE_H - 6) * lead_scale;
-    int block_h = kicker_h + q_lines * line_h + below_h;
+    int block_h = kicker_h + q_lines * (HE_H - 6) + below_h;
 
     // Today's picture, in whatever the block is not using. Six colours, which
     // is the whole gamut. Drawn a pixel at a time into the RAM canvas: 22,000
@@ -425,23 +391,8 @@ void page_daily_draw(const page_daily_content &c)
         y += kicker_h;
     }
 
-    if (cap_w) {
-        // Lifted six pixels so the doubled cell's ink sits on the first line's
-        // baseline rather than hanging below it.
-        he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, y - 6, cap,
-                          TFT_RED, kAnswerScale);
-        char buf[192];
-        const int n = first_len < (int)sizeof buf - 1 ? first_len : (int)sizeof buf - 1;
-        std::memcpy(buf, q, (size_t)n);
-        buf[n] = '\0';
-        he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X - cap_w, y, buf);
-        y += HE_H - 6;
-        y = he::draw_wrapped(m, y, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
-                             DL_FOLIO_Y, tail, 4);
-    } else {
-        y = he::draw_wrapped(m, y, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
-                             DL_FOLIO_Y, q, 5);
-    }
+    y = he::draw_wrapped(m, y, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
+                         DL_FOLIO_Y, q, 5);
     if (y < 0) y = L.riddle_top + 3 * (HE_H - 6);   // clamped; drew what it could
 
     if (c.show_answer && c.answer) {
