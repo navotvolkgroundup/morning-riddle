@@ -3,7 +3,11 @@
 #include <M5Unified.h>
 #include <cstdio>
 
+#include "esp_log.h"
+
 #include "gfx_target.hpp"
+
+static const char *TAG = "calib";
 
 extern "C" {
 #include "daily_layout.h"
@@ -44,4 +48,19 @@ void calibrate_draw()
     }
 
     g.endWrite();
+
+    // READ THE BUFFER BACK BEFORE IT IS PUSHED.
+    //
+    // The panel came back a uniform dark field, which has two completely
+    // different causes: the canvas holds the wrong pixels, or the canvas is
+    // right and what reaches the panel is not. A photograph cannot tell those
+    // apart and neither can I. Sampling the sprite at known points does, in
+    // one line of log: if band 15 reads near 255 and band 0 near 0, the buffer
+    // is correct and the fault is downstream of it.
+    ESP_LOGW(TAG, "canvas depth=%d  sample: margin=%06lx b0=%06lx b8=%06lx b15=%06lx",
+             (int)g.getColorDepth(),
+             (unsigned long)g.readPixel(4, 4),
+             (unsigned long)g.readPixel(x0 + 40, 0 * h + 8),
+             (unsigned long)g.readPixel(x0 + 40, 8 * h + 8),
+             (unsigned long)g.readPixel(x0 + 40, 15 * h + 8));
 }

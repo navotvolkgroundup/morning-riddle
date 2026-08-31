@@ -591,7 +591,17 @@ extern "C" void app_main(void)
     //   M5.Display.display(...)  1909 ms, no ink moved
     //   Canvas->pushSprite(0,0) 17134 ms, the page appears
     // The second is a real Spectra 6 waveform; the first never drove anything.
-    const int64_t ms = ui_canvas_push();
+    // ONLY PUSH WHAT WAS DRAWN. This used to be unconditional and was correct
+    // only by accident: the canvas was allocated lazily inside
+    // page_daily_draw(), so on a day with nothing to redraw it stayed null and
+    // ui_canvas_push() bailed out on its own.
+    //
+    // Claiming the canvas early -- so an allocation failure shows at the top of
+    // the log instead of fifteen seconds in -- removed that accident, and the
+    // push then sent a freshly allocated, all-zero canvas to the panel. Zero is
+    // black. It painted the whole page black and reported a healthy 17s
+    // refresh doing it.
+    const int64_t ms = will_draw ? ui_canvas_push() : -1;
 
     ESP_LOGI(TAG, "draw %lld ms, panel refresh %lld ms",
              (long long)push_ms, (long long)ms);

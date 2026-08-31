@@ -55,3 +55,10 @@ idf_component_register(
         "ui/font24HE.FON"
         "ui/font16HE.FON"
 )
+
+# -DPD_CALIBRATE=1 on the idf.py command line sets a CMake cache variable, not
+# a compiler define, so the calibration page silently never compiled in and two
+# "calibration" flashes were ordinary builds. This is what turns one into the
+# other.
+target_compile_definitions(${COMPONENT_LIB} PRIVATE
+    PD_CALIBRATE=$<IF:$<BOOL:${PD_CALIBRATE}>,1,0>)
