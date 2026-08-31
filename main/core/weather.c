@@ -193,7 +193,10 @@ const char *weather_advice_he(const weather_t *w)
     // is actually above the current reading: the daily block is optional in the
     // response, and an absent one leaves it zero, which would otherwise read as
     // a freezing afternoon in the middle of a 30C morning.
-    if (w->hi_x10 > t && w->hi_x10 >= 320)
+    // 30C, not 32. Set at 32 first, which left a 31C Israeli afternoon
+    // advising short sleeves -- true, and not the useful half. At this end of
+    // the scale the shirt is obvious and the hat is the thing they forget.
+    if (w->hi_x10 > t && w->hi_x10 >= 300)
         return "\xd7\x9b\xd7\x95\xd7\x91\xd7\xa2 \xd7\x95\xd7\x9e\xd7\x99\xd7\x9d";                // hat and water
     return "\xd7\x97\xd7\x95\xd7\x9c\xd7\xa6\xd7\x94 \xd7\xa7\xd7\xa6\xd7\xa8\xd7\x94";            // short-sleeved shirt
 }

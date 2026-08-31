@@ -567,7 +567,8 @@ static int test_weather_advice(void)
     // optional, so hi_x10 is zero whenever it was absent. A zero high must not
     // read as a cold afternoon, and must not suppress the hat either.
     w.temp_x10 = 280; w.hi_x10 = 340; CHECK(strcmp(weather_advice_he(&w), ADV_HAT)    == 0);
-    w.temp_x10 = 280; w.hi_x10 = 300; CHECK(strcmp(weather_advice_he(&w), ADV_TSHIRT) == 0);
+    w.temp_x10 = 280; w.hi_x10 = 300; CHECK(strcmp(weather_advice_he(&w), ADV_HAT)    == 0);
+    w.temp_x10 = 280; w.hi_x10 = 299; CHECK(strcmp(weather_advice_he(&w), ADV_TSHIRT) == 0);
     w.temp_x10 = 280; w.hi_x10 =   0; CHECK(strcmp(weather_advice_he(&w), ADV_TSHIRT) == 0);
     // Already hotter than the forecast high: trust what is measured.
     w.temp_x10 = 330; w.hi_x10 = 320; CHECK(strcmp(weather_advice_he(&w), ADV_TSHIRT) == 0);
