@@ -4,6 +4,7 @@
 
 #include "esp_log.h"
 #include "nvs.h"
+#include "esp_app_desc.h"
 #include "nvs_flash.h"
 
 static const char *TAG = "state";
@@ -44,6 +45,24 @@ uint32_t state_config_fingerprint(const kids_t *k, const schedule_t *s)
     const uint8_t *b;
     if (k) { b = (const uint8_t *)k; for (size_t i = 0; i < sizeof *k; i++) { h ^= b[i]; h *= 16777619u; } }
     if (s) { b = (const uint8_t *)s; for (size_t i = 0; i < sizeof *s; i++) { h ^= b[i]; h *= 16777619u; } }
+
+    // AND THE FIRMWARE, because the firmware is part of what is on the panel.
+    //
+    // The fingerprint asks "is the page on the wall still the page I would
+    // draw?" and the config was only half the answer: every layout change
+    // today -- the newspaper masthead, the weather panel, the drop cap -- left
+    // a board that would have kept showing yesterday's rendering until the
+    // riddle changed, because the names and the timetable had not moved.
+    //
+    // Mixing the build hash in means a reflash always redraws exactly once,
+    // which costs one 17s refresh on a cabled session and is the behaviour
+    // every one of those flashes wanted. It is also what would have shown the
+    // black-page bug immediately instead of on the next quiet morning.
+    const esp_app_desc_t *app = esp_app_get_description();
+    if (app) {
+        b = (const uint8_t *)app->app_elf_sha256;
+        for (size_t i = 0; i < sizeof app->app_elf_sha256; i++) { h ^= b[i]; h *= 16777619u; }
+    }
     return h;
 }
 

@@ -51,6 +51,7 @@ idf_component_register(
         vfs
         lwip
         esp_http_server
+        esp_app_format
     EMBED_FILES
         "ui/font24HE.FON"
         "ui/font16HE.FON"
