@@ -13,39 +13,32 @@ void daily_layout(const daily_flags_t *f, daily_layout_t *out)
 {
     if (!out) return;
 
-    daily_flags_t none = { false, false, false, false, 0 };
+    daily_flags_t none = { false, false, false, false };
     if (!f) f = &none;
 
     out->band_y           = DL_HDR_RULE_Y + DL_HDR_RULE_H + DL_ZONE_GAP;
     out->band_h           = 0;
-    out->image_y          = DL_ABSENT;
-    out->image_h          = 0;
     out->schedule_y       = DL_ABSENT;
     out->weather_y        = DL_ABSENT;
     out->birthday_label_y = DL_ABSENT;
     out->birthday_y       = DL_ABSENT;
     out->callout_y        = DL_ABSENT;
 
-    // TODAY'S PICTURE, DIRECTLY UNDER THE MASTHEAD, and only if the rest of
-    // the page can still be drawn around it.
-    //
-    // A picture is the one zone here that is nice to have. Everything below it
-    // is not: the timetable is what a child checks before leaving, the turn
-    // line is who the morning belongs to, and the riddle is the point. So the
-    // picture is placed LAST in priority and FIRST in position -- it takes the
-    // top of the page when there is room and silently does not exist when
-    // there is not, which on a birthday with a timetable and a turn line is
-    // most of the time.
-    //
-    // The fit test is run against the finished layout further down, so this
-    // records the intent and the decision is made once, at the end.
-    const int want_image = (f->image_h > 0) ? f->image_h : 0;
-
-    // Schedule above weather, stacked. Side by side would give each 190px on a
-    // 400-wide panel, which is not enough for a Hebrew timetable line.
+    // SIDE BY SIDE NOW, which an earlier comment here said was impossible:
+    // "side by side would give each 190px on a 400-wide panel, which is not
+    // enough for a Hebrew timetable line." True of two TEXT columns. The
+    // weather is a 126px panel rather than a line, which leaves the timetable
+    // 232px and two lines to wrap into -- more room in total than the single
+    // line it used to get, and the band is 104px instead of 98 for both.
     int y = out->band_y + DL_HAIR + DL_BAND_PAD;
-    if (f->schedule) { out->schedule_y = y; y += DL_LINE_H; }
-    if (f->weather)  { out->weather_y  = y; y += DL_LINE_H; }
+    const int box = f->weather ? DL_WXBOX_H : 0;
+    if (f->weather)  out->weather_y  = y;
+    if (f->schedule) out->schedule_y = y + 8;   // optical, against the box top
+    if (f->schedule || f->weather) {
+        // The band is as tall as the panel when there is one, and one wrapped
+        // timetable otherwise.
+        y += box ? box : (DL_SCHED_LINES * (DL_LINE_H - 6));
+    }
 
     // The band is two hairlines, so it exists only when it has contents -- a
     // pair of rules with nothing between them on a weekend morning reads as a
@@ -66,13 +59,17 @@ void daily_layout(const daily_flags_t *f, daily_layout_t *out)
     // The birthday is a small standing head over the name rather than two body
     // lines. It costs 17px less, and it is the right relationship: the label
     // is the same every year and the name is the news.
+    // A BIRTHDAY REPLACES THE TURN LINE RATHER THAN STACKING ON IT. Both
+    // address the reader by name, and on the one morning of the year that a
+    // child's name is on the page in red, telling a different child that
+    // today's riddle is for them is the wrong page. It also buys back the 47px
+    // that made the crowded day the case nothing else could fit into.
     if (f->birthday) {
         out->birthday_label_y = y;
         y += DL_SMALL_H + 2;
         out->birthday_y = y;
         y += DL_LINE_H + DL_ZONE_GAP;
-    }
-    if (f->callout) {
+    } else if (f->callout) {
         out->callout_y = y;
         y += DL_LINE_H + DL_ZONE_GAP;
     }
@@ -86,24 +83,19 @@ void daily_layout(const daily_flags_t *f, daily_layout_t *out)
     out->riddle_top = y;
     out->riddle_h   = DL_BODY_BOTTOM - y;
 
-    // Now decide the picture. It costs its own height plus a gap, and it is
-    // affordable exactly when the riddle still clears its floor afterwards.
-    // Everything below the masthead shifts down by that amount, so this is one
-    // addition applied to every zone rather than a second layout pass.
-    if (want_image > 0) {
-        const int cost = want_image + DL_ZONE_GAP;
-        if (out->riddle_h - cost >= DL_RIDDLE_MIN_H) {
-            out->image_y = DL_HDR_RULE_Y + DL_HDR_RULE_H + DL_ZONE_GAP;
-            out->image_h = want_image;
-            out->band_y += cost;
-            if (out->schedule_y       != DL_ABSENT) out->schedule_y       += cost;
-            if (out->weather_y        != DL_ABSENT) out->weather_y        += cost;
-            if (out->birthday_label_y != DL_ABSENT) out->birthday_label_y += cost;
-            if (out->birthday_y       != DL_ABSENT) out->birthday_y       += cost;
-            if (out->callout_y        != DL_ABSENT) out->callout_y        += cost;
-            out->lead_rule_y += cost;
-            out->riddle_top  += cost;
-            out->riddle_h    -= cost;
-        }
-    }
+
+}
+
+int daily_image_in_slack(int riddle_top, int riddle_h, int block_h, int image_h)
+{
+    if (image_h <= 0) return DL_ABSENT;
+
+    // What the block is not using. DL_ZONE_GAP twice: once above the picture
+    // and once below it, so it never touches the lead rule or the question.
+    const int slack = riddle_h - block_h;
+    if (slack < image_h + 2 * DL_ZONE_GAP) return DL_ABSENT;
+
+    // Directly under the lead rule, which is where a paper puts a picture that
+    // belongs to the story beneath it.
+    return riddle_top + DL_ZONE_GAP;
 }

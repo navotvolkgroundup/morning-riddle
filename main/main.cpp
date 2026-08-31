@@ -408,7 +408,7 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "core linked: schedule_weekday(20692) = %d (expect 4)", wd);
 
     daily_layout_t L;
-    daily_flags_t f = { false, false, false, false, 0 };
+    daily_flags_t f = { false, false, false, false };
     daily_layout(&f, &L);
     // Layout and panel must agree. They disagreed once, silently, because the
     // geometry was built for the product name's 600x400 rather than the

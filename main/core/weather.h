@@ -105,6 +105,29 @@ typedef enum {
 
 weather_tone_e weather_advice_tone(const weather_t *w);
 
+// Which symbol the weather panel draws.
+//
+// The page draws these rather than blitting bitmaps. wmo_icon() returns the
+// vendor's filenames -- "qin", "duoyun", "xiaoyu" -- which name PNGs that live
+// in the Waveshare tree and were never ported. Six colours make a drawn sun
+// better than a 1-bit one anyway: a yellow disc with rays and a grey cloud is
+// a handful of fillCircle calls and it uses inks the page otherwise wastes.
+//
+// Fewer symbols than WMO has codes, on purpose. A child glancing at a wall
+// needs to know whether to expect sun, cloud, water or ice; the difference
+// between "slight" and "moderate" drizzle is not a symbol, it is a footnote.
+typedef enum {
+    WX_ICON_SUN = 0,
+    WX_ICON_PART,       // sun behind cloud
+    WX_ICON_CLOUD,
+    WX_ICON_RAIN,
+    WX_ICON_SNOW,
+    WX_ICON_STORM,
+    WX_ICON_FOG,
+} weather_icon_e;
+
+weather_icon_e weather_icon(uint16_t wmo);
+
 // Parses an open-meteo forecast response. Fills everything except
 // fetched_at, which the caller stamps because only it knows the clock.
 // Returns false if the document is unusable; *out is untouched on failure so

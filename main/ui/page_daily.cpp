@@ -5,6 +5,7 @@
 #include "gfx_target.hpp"
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include "hebrew.hpp"
 
@@ -43,72 +44,121 @@ const he_metrics_t *metrics()
     return &g_metrics;
 }
 
-void draw_header(const page_daily_content &c)
+// The paper's name, alone on the top line, in the one colour a masthead has
+// ever been printed in besides black.
+void draw_nameplate()
 {
-    // THE MASTHEAD, ON ONE LINE: nameplate right, dateline left.
-    //
-    // Stacking them the way a broadsheet does would cost 41px the crowded days
-    // do not have. Flanking works because the two are different sizes -- which
-    // is the whole reason the small face was cut -- so they read as nameplate
-    // and dateline rather than as two competing headings.
-    //
-    // Drawn at y=0, not DL_HDR_Y, and that is measured rather than fudged: ink
-    // occupies rows 5..37 of the 41px body cell, so a cell at y=0 lands its ink
-    // at 5..37 and clears the rule at DL_HDR_RULE_Y=42 by five pixels.
-    he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, 0, MASTHEAD_NAME);
+    he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, 0, MASTHEAD_NAME,
+                      TFT_RED);
+}
 
-    // "יום שני · 31.08 · גיליון 12"
-    //
-    // A REAL ISSUE NUMBER, WHICH IS NOT THE STREAK. This printed the household
-    // streak for one build, and a paper's issue number does not reset because
-    // nobody read yesterday's. riddle_nvs_t counts mornings published now and
-    // this prints that. It is also no longer a scoreboard, which matters: a
-    // scoreboard in the masthead invites a child to feel behind before they
-    // have read a word.
-    //
-    // Below two it says nothing: "issue 1" is not a boast, it is an admission.
+// The dateline, reversed out of a solid bar.
+//
+// White type on black is the strongest device this panel has and the page was
+// not using it. It is also what turned a heading into a masthead: the name had
+// the dateline beside it on one line, which is a title with a subtitle, where a
+// paper puts its name alone and a strip of furniture underneath.
+void draw_dateline(const page_daily_content &c)
+{
+    ui_canvas().fillRect(DL_MARGIN_X, DL_BAR_Y, DL_CANVAS_W - 2 * DL_MARGIN_X,
+                         DL_BAR_H, TFT_BLACK);
+
     char dl[64];
     int n = std::snprintf(dl, sizeof dl, "%s \xc2\xb7 %s",
                           schedule_weekday_he(schedule_weekday(c.today)),
                           c.date ? c.date : "");
+    // The issue number, and it is a real issue number: mornings published,
+    // never reset. Below two it says nothing -- "issue 1" is not a boast.
     if (c.issue > 1 && n > 0 && n < (int)sizeof dl)
         std::snprintf(dl + n, sizeof dl - n,
                       " \xc2\xb7 \xd7\x92\xd7\x99\xd7\x9c\xd7\x99\xd7\x95\xd7\x9f %u",  // "issue N"
                       (unsigned)c.issue);
-    // Left-flag position, so it sits opposite the nameplate rather than under
-    // it. Measured, not guessed, because the day name and the issue number both
-    // change width.
-    he::draw_line_rtl(he::small(),
-                      DL_MARGIN_X + he::measure(he::small(), dl), 9, dl);
 
-    ui_canvas().fillRect(DL_MARGIN_X, DL_HDR_RULE_Y,
-                         DL_CANVAS_W - 2 * DL_MARGIN_X, DL_HDR_RULE_H,
-                         TFT_BLACK);
+    he::draw_line_rtl(he::small(), DL_CANVAS_W - DL_MARGIN_X - 8,
+                      DL_BAR_Y + (DL_BAR_H - 24) / 2, dl, TFT_WHITE);
 }
 
+// The weather symbol, drawn rather than blitted.
+//
+// wmo_icon() names PNGs that live in the Waveshare tree and were never ported.
+// Six colours make a drawn sun better than a 1-bit one anyway: a yellow disc
+// with rays and a grey cloud is a dozen primitives and it spends inks the page
+// otherwise wastes.
+void draw_wx_icon(int cx, int cy, weather_icon_e kind)
+{
+    auto &g = ui_canvas();
+    const bool sunny = (kind == WX_ICON_SUN || kind == WX_ICON_PART);
+    const bool cloudy = (kind != WX_ICON_SUN);
+
+    if (sunny) {
+        g.fillCircle(cx, cy, 13, TFT_YELLOW);
+        // Eight rays, by octant, so no trigonometry and no float on a path
+        // that runs twice a day.
+        static const int8_t dx[8] = { 1, 1, 0, -1, -1, -1,  0,  1 };
+        static const int8_t dy[8] = { 0, 1, 1,  1,  0, -1, -1, -1 };
+        for (int i = 0; i < 8; i++) {
+            const int x0 = cx + dx[i] * 17, y0 = cy + dy[i] * 17;
+            const int x1 = cx + dx[i] * 23, y1 = cy + dy[i] * 23;
+            g.drawLine(x0, y0, x1, y1, TFT_YELLOW);
+            g.drawLine(x0 + 1, y0, x1 + 1, y1, TFT_YELLOW);
+        }
+    }
+    if (cloudy) {
+        // Storm and overcast get a black cloud; the rest a grey one, so the
+        // symbol carries severity even before the colour is read.
+        const uint32_t col = (kind == WX_ICON_CLOUD || kind == WX_ICON_STORM)
+                                 ? TFT_BLACK : TFT_DARKGREY;
+        const int ox = (kind == WX_ICON_PART) ? 8 : 0;
+        const int oy = (kind == WX_ICON_PART) ? 6 : 0;
+        g.fillCircle(cx - 9 + ox, cy + 5 + oy, 11, col);
+        g.fillCircle(cx + 5 + ox, cy - 1 + oy, 13, col);
+        g.fillRect(cx - 14 + ox, cy + 4 + oy, 28, 11, col);
+    }
+    if (kind == WX_ICON_RAIN)
+        for (int i = 0; i < 3; i++)
+            g.drawLine(cx - 12 + i * 11, cy + 18, cx - 16 + i * 11, cy + 28, TFT_BLUE);
+    if (kind == WX_ICON_SNOW)
+        for (int i = 0; i < 3; i++)
+            g.fillCircle(cx - 12 + i * 11, cy + 22, 3, TFT_BLUE);
+    if (kind == WX_ICON_STORM) {
+        g.fillTriangle(cx + 2, cy + 16, cx - 6, cy + 31, cx + 3, cy + 29, TFT_YELLOW);
+        g.fillTriangle(cx + 3, cy + 29, cx - 2, cy + 41, cx + 8, cy + 24, TFT_YELLOW);
+    }
+    if (kind == WX_ICON_FOG)
+        for (int i = 0; i < 3; i++)
+            g.fillRect(cx - 20, cy + 14 + i * 7, 40, 3, TFT_DARKGREY);
+}
+
+// The boxed weather panel: symbol, temperature, advice.
+//
+// A BOX, NOT A LINE. As a line the weather was one more row of the same text
+// at the same size as the timetable, and the temperature -- the most scannable
+// thing on the page -- was the smallest. Boxed beside the timetable it becomes
+// a panel a child reads at a glance, and the band goes from two stacked
+// captions to something with a shape.
 void draw_weather(const page_daily_content &c, int y)
 {
     if (!c.wx) return;
+    auto &g = ui_canvas();
 
-    // WHOLE DEGREES, AND HEBREW. This line used to read "19.4C partly cloudy
-    // 24/17", which is four facts and no decision. The tenth of a degree was
-    // never actionable, the English label was unreadable to the audience, and
-    // the high/low asked the reader to do the inference themselves. What
-    // replaces them is the inference: the temperature they are walking out
-    // into, and what to put on.
-    //
-    // Rounded rather than truncated -- 19.6C shown as 19 is wrong by more than
-    // the digit it saves.
+    const int x0 = DL_MARGIN_X, x1 = DL_MARGIN_X + DL_WXBOX_W;
+    const int cx = (x0 + x1) / 2;
+    g.drawRect(x0, y, DL_WXBOX_W, DL_WXBOX_H, TFT_BLACK);
+
+    draw_wx_icon(cx, y + 26, weather_icon(c.wx->wmo));
+
+    // Whole degrees, big, with the ring drawn rather than typed: the degree
+    // sign is U+00B0 and neither the Hebrew blob nor M5GFX's built-in font is
+    // guaranteed to have it, and a missing glyph here is a silent blank.
     const int t10 = c.wx->temp_x10;
-    char line[64];
-    std::snprintf(line, sizeof line, "%dC %s",
-                  (t10 + (t10 < 0 ? -5 : 5)) / 10, weather_advice_he(c.wx));
+    char num[8];
+    std::snprintf(num, sizeof num, "%d", (t10 + (t10 < 0 ? -5 : 5)) / 10);
+    g.setTextColor(TFT_BLACK);
+    g.setTextSize(4);                        // 6x8 cell -> 24x32
+    const int nw = (int)std::strlen(num) * 24;
+    g.drawString(num, cx - (nw + 9) / 2, y + 52);
+    g.drawCircle(cx - (nw + 9) / 2 + nw + 5, y + 56, 4, TFT_BLACK);
 
-    // STALENESS IS THE COLOUR, NOT A WORD. This used to draw "old" in red at
-    // the left end, which is clearer in isolation and cost 74px of the one
-    // line the advice has to fit into -- enough to elide "coat and gloves"
-    // down to "..." on exactly the morning it matters. The whole line goes red
-    // instead: unmistakable on an otherwise black page, and free.
     // Stale outranks tone: a reading that may be wrong must not be dressed in
     // the colour that says "trust this and take a hat".
     uint32_t colour = TFT_BLACK;
@@ -122,11 +172,11 @@ void draw_weather(const page_daily_content &c, int y)
         default:           colour = TFT_BLACK;  break;
         }
     }
-
-    // RTL from the right edge: the temperature lands rightmost -- first, in
-    // Hebrew reading order -- and the advice follows it leftwards.
-    he::draw_line_rtl_fit(he::body(), DL_CANVAS_W - DL_MARGIN_X, DL_MARGIN_X,
-                          y, line, colour);
+    // Centred in the box, so it reads as the panel's caption rather than as a
+    // line of the page that happens to start there.
+    const char *adv = weather_advice_he(c.wx);
+    const int aw = he::measure(he::small(), adv);
+    he::draw_line_rtl(he::small(), cx + aw / 2, y + DL_WXBOX_H - 26, adv, colour);
 }
 
 }  // namespace
@@ -141,7 +191,6 @@ void page_daily_draw(const page_daily_content &c)
     f.weather  = c.wx && c.wx->fetched_at != 0;
     f.callout  = c.turn_kid >= 0 && c.kids && c.turn_kid < c.kids->count;
     f.birthday = c.kids && kids_birthday_on(c.kids, c.month, c.day) >= 0;
-    f.image_h  = c.image ? (int)c.image->h : 0;
 
     daily_layout_t L;
     daily_layout(&f, &L);
@@ -149,34 +198,13 @@ void page_daily_draw(const page_daily_content &c)
     ui_canvas().startWrite();
     ui_canvas().fillScreen(TFT_WHITE);
 
-    draw_header(c);
+    draw_nameplate();
+    draw_dateline(c);
 
-    // TODAY'S PICTURE, if the layout could afford one. Six colours, which is
-    // the whole gamut and the first time this page has used more than two.
-    //
-    // Drawn a pixel at a time into the RAM canvas. That is 36,000 drawPixel
-    // calls for a 400x90 strip, which sounds careless and costs single-digit
-    // milliseconds against a panel refresh of seventeen seconds; a row-packing
-    // optimisation here would be measuring the wrong thing.
-    if (L.image_h > 0 && c.image) {
-        static const uint32_t kInk[STRIP_INK_COUNT] = {
-            TFT_BLACK, TFT_WHITE, TFT_RED, TFT_YELLOW, TFT_BLUE, TFT_GREEN,
-        };
-        for (int row = 0; row < L.image_h; row++) {
-            for (int x = 0; x < STRIP_W; x++) {
-                const uint8_t ink = strip_at(c.image, x, row);
-                // White is the page. Skipping it is not an optimisation, it is
-                // what lets an illustration sit on the paper rather than in a
-                // box -- the canvas is already white.
-                if (ink == STRIP_WHITE) continue;
-                ui_canvas().drawPixel(x, L.image_y + row, kInk[ink]);
-            }
-        }
-    }
-
-    // RULES, NOT A BOX. A bordered rectangle around the timetable and the
-    // weather made them look like a form to be filled in; two hairlines make
-    // them look like a column to be read. Same pixels, opposite reading.
+    // Hairlines top and bottom. A bordered rectangle around the whole band
+    // made it look like a form to be filled in; two rules make it look like a
+    // column to be read, and the weather panel inside now supplies the only
+    // box on the page, which is what makes that box mean something.
     if (L.band_h > 0) {
         const int w = DL_CANVAS_W - 2 * DL_MARGIN_X;
         ui_canvas().fillRect(DL_MARGIN_X, L.band_y, w, DL_HAIR, TFT_BLACK);
@@ -184,15 +212,18 @@ void page_daily_draw(const page_daily_content &c)
                              DL_HAIR, TFT_BLACK);
     }
 
-    // Full margin-to-margin now: with no box there is no border to sit inside,
-    // and the timetable gets DL_BAND_PAD*2 more width -- which is exactly the
-    // line that has been eliding subjects.
-    if (L.schedule_y != DL_ABSENT)
-        he::draw_line_rtl_fit(he::body(), DL_CANVAS_W - DL_MARGIN_X,
-                              DL_MARGIN_X, L.schedule_y,
-                              schedule_for_day(c.sched, c.today));
-
     if (L.weather_y != DL_ABSENT) draw_weather(c, L.weather_y);
+
+    // The timetable wraps in what the panel leaves, which is 232px and two
+    // lines -- more room in total than the single full-width line it used to
+    // get, and the line that kept eliding subjects.
+    if (L.schedule_y != DL_ABSENT) {
+        const int left = (L.weather_y != DL_ABSENT)
+                             ? DL_MARGIN_X + DL_WXBOX_W + 12 : DL_MARGIN_X;
+        he::draw_wrapped(m, L.schedule_y, left, DL_CANVAS_W - DL_MARGIN_X,
+                         DL_BODY_BOTTOM, schedule_for_day(c.sched, c.today),
+                         DL_SCHED_LINES);
+    }
 
     // A small standing head over the name, instead of two body lines saying
     // the same thing at the same weight. The label is the same every year; the
@@ -245,22 +276,42 @@ void page_daily_draw(const page_daily_content &c)
 
     // THE RIDDLE BLOCK, CENTRED IN WHAT IS LEFT.
     //
-    // It used to start hard against riddle_top and flow down, which meant the
-    // composition was decided by how long the riddle happened to be. A short
-    // one ("what has teeth and never bites?") left the bottom 45% of the panel
-    // blank and the whole page looked top-weighted and unfinished; a long one
-    // filled it and looked deliberate. Same code, same day, opposite result.
-    //
-    // Measuring the block first and centring it costs one extra line-break
-    // pass over a string under 200 bytes, and makes both cases look composed.
+    // It used to start hard against riddle_top and flow down, so the
+    // composition was decided by how long the riddle happened to be: a short
+    // one left the bottom of the panel blank and looked unfinished, a long one
+    // filled it and looked deliberate. Measuring first and centring makes both
+    // look composed.
     const int riddle_w = DL_CANVAS_W - 2 * DL_MARGIN_X;
     const char *q = c.question ? c.question : "";
-    const int q_lines = he::wrapped_lines(m, riddle_w, q, 5);
 
-    // A KICKER, BUT ONLY WHEN THE PAGE WOULD OTHERWISE LIE. The paper is called
-    // "the morning riddle", so a riddle needs no label -- but a joke read as a
-    // riddle is a puzzle with no solution, and a child who cannot solve it
-    // concludes they are bad at this rather than that it was a joke.
+    // THE DROP CAP, and the one thing that had to be right about it: it is the
+    // first LETTER of a word, so any real gap after it makes the remainder
+    // read as a separate token. Hebrew "מה" broken as "מ ה" is not a
+    // typographic device, it is a spelling mistake. Two pixels, no more.
+    char cap[8] = {0};
+    int cap_w = 0;
+    {
+        uint32_t cp;
+        const int n = he_utf8_next(q, &cp);
+        // Only Hebrew letters get dropped. A question opening on a digit or a
+        // quote would give a cap that reads as a stray mark.
+        if (n > 0 && n < (int)sizeof cap && he_is_letter(cp)) {
+            std::memcpy(cap, q, (size_t)n);
+            cap_w = he::measure(he::body(), cap, kAnswerScale) + 2;
+            q += n;
+            while (*q == ' ') q++;
+        }
+    }
+
+    // Line 1 is narrowed by the cap; the rest run full width.
+    const int first_w = riddle_w - cap_w;
+    const int first_len = cap_w ? he_line_break(m, q, first_w) : 0;
+    const char *tail = q + first_len;
+    while (*tail == ' ') tail++;
+    const int tail_lines = he::wrapped_lines(m, riddle_w, tail, 4);
+    const int q_lines = (cap_w ? 1 : he::wrapped_lines(m, riddle_w, q, 5))
+                        + (cap_w ? tail_lines : 0);
+
     const char *kicker = kind_label(c.kind);
     const int kicker_h = kicker ? DL_SMALL_H + 6 : 0;
 
@@ -270,14 +321,43 @@ void page_daily_draw(const page_daily_content &c)
 
     int block_h = kicker_h + q_lines * (HE_H - 6);
     if (c.show_answer && c.answer) {
-        block_h += 20 + 16 + HE_H * kAnswerScale;
-        if (why_lines) block_h += 18 + why_lines * (HE_H - 6);
+        block_h += 16 + DL_HAIR + 8 + HE_H * kAnswerScale;
+        if (why_lines) block_h += 14 + why_lines * (HE_H - 6);
     } else if (c.has_choices) {
-        block_h += 12 + 3 * kChoiceH + 2 * kChoiceGap;
+        // Each choice sits under its own hairline, and one closes the list.
+        block_h += 10 + 3 * (DL_HAIR + 9 + DL_LINE_H + 9) + DL_HAIR;
     }
 
-    const int slack = DL_BODY_BOTTOM - L.riddle_top - block_h;
-    int y = L.riddle_top + (slack > 0 ? slack / 2 : 0);
+    // TODAY'S PICTURE, in whatever the block is not using. Six colours, which
+    // is the whole gamut and the first time this page has used more than two.
+    //
+    // Drawn a pixel at a time into the RAM canvas: 36,000 drawPixel calls for
+    // a 400x90 strip, which sounds careless and costs single-digit
+    // milliseconds against a seventeen-second panel refresh. A row-packing
+    // optimisation here would be measuring the wrong thing.
+    const int image_h = c.image ? (int)c.image->h : 0;
+    const int image_y = daily_image_in_slack(L.riddle_top, L.riddle_h,
+                                             block_h, image_h);
+    if (image_y != DL_ABSENT) {
+        static const uint32_t kInk[STRIP_INK_COUNT] = {
+            TFT_BLACK, TFT_WHITE, TFT_RED, TFT_YELLOW, TFT_BLUE, TFT_GREEN,
+        };
+        for (int row = 0; row < image_h; row++) {
+            for (int x = 0; x < STRIP_W; x++) {
+                const uint8_t ink = strip_at(c.image, x, row);
+                // White is the page. Skipping it is what lets an illustration
+                // sit on the paper rather than in a box.
+                if (ink == STRIP_WHITE) continue;
+                ui_canvas().drawPixel(x, image_y + row, kInk[ink]);
+            }
+        }
+    }
+
+    // The block centres in what is left after the picture, so a page with one
+    // does not look bottom-heavy and a page without one is unchanged.
+    const int taken = (image_y != DL_ABSENT) ? image_h + 2 * DL_ZONE_GAP : 0;
+    const int slack = DL_BODY_BOTTOM - L.riddle_top - block_h - taken;
+    int y = L.riddle_top + taken + (slack > 0 ? slack / 2 : 0);
 
     if (kicker) {
         he::draw_line_rtl(he::small(), DL_CANVAS_W - DL_MARGIN_X, y, kicker,
@@ -285,55 +365,63 @@ void page_daily_draw(const page_daily_content &c)
         y += kicker_h;
     }
 
-    y = he::draw_wrapped(m, y, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
-                         DL_BODY_BOTTOM, q, 5);
+    if (cap_w) {
+        // Lifted six pixels so the doubled cell's ink sits on the first line's
+        // baseline rather than hanging below it.
+        he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, y - 6, cap,
+                          TFT_RED, kAnswerScale);
+        char buf[192];
+        int n = first_len < (int)sizeof buf - 1 ? first_len : (int)sizeof buf - 1;
+        std::memcpy(buf, q, (size_t)n);
+        buf[n] = '\0';
+        he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X - cap_w, y, buf);
+        y += HE_H - 6;
+        y = he::draw_wrapped(m, y, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
+                             DL_BODY_BOTTOM, tail, 4);
+    } else {
+        y = he::draw_wrapped(m, y, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
+                             DL_BODY_BOTTOM, q, 5);
+    }
     if (y < 0) y = L.riddle_top + 3 * (HE_H - 6);   // clamped; drew what it could
 
     if (c.show_answer && c.answer) {
-        y += 20;
-        ui_canvas().drawFastHLine(DL_MARGIN_X, y, DL_CANVAS_W - 2 * DL_MARGIN_X,
-                                 TFT_BLACK);
         y += 16;
-        // DOUBLE SIZE, AND NOW ACTUALLY. This comment used to promise the
-        // answer was "larger than the question was ... readable across a
-        // room", and draw_line_rtl had no size parameter at all -- the payoff
-        // the whole day builds to was rendered at exactly the weight of a
-        // timetable entry. Pixel doubling of a 24x41 blob is coarse up close
-        // and unmistakable from the far side of a room, which is the trade
-        // this page wants.
+        ui_canvas().fillRect(DL_MARGIN_X, y, DL_CANVAS_W - 2 * DL_MARGIN_X,
+                             DL_HAIR, TFT_BLACK);
+        y += DL_HAIR + 8;
+        // Double size, in red: the payoff the whole day builds to, and it
+        // should be readable across a room.
         he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, y, c.answer,
                           TFT_RED, kAnswerScale);
         y += HE_H * kAnswerScale;
 
-        // AND WHY IT IS THE ANSWER. In black under the red, at reading size:
-        // the answer is the payoff, this is the part that makes the payoff
-        // worth having. Optional -- an item with no `why` draws exactly the
-        // page it drew before this existed.
         if (why_lines) {
-            y += 18;
-            he::draw_wrapped(m, y, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
-                             DL_BODY_BOTTOM, why, 3);
+            y += 14;
+            y = he::draw_wrapped(m, y, DL_MARGIN_X, DL_CANVAS_W - DL_MARGIN_X,
+                                 DL_BODY_BOTTOM, why, 3);
+            // The end mark. A filled square closing the story is the oldest
+            // piece of newspaper furniture there is, and it tells a child the
+            // page has finished rather than run out of room.
+            if (y > 0)
+                ui_canvas().fillRect(DL_MARGIN_X, y - 30, 11, 11, TFT_BLACK);
         }
     } else if (c.has_choices) {
-        y += 12;
+        y += 10;
         for (int i = 0; i < 3; i++) {
-            if (y + kChoiceH > DL_BODY_BOTTOM) break;
-            // NO A/B/C MARKERS. They were printed top-to-bottom as A, B, C and
-            // the case is silkscreened C, B, A for those same three buttons --
-            // see wake.hpp, which documents the inversion. A child who trusted
-            // the letters pressed the opposite end of the list. The comment
-            // here claimed they "match the silkscreen"; two of the three never
-            // did.
-            //
-            // Deleting them is the whole fix. The real affordance was always
-            // position -- three lines beside three buttons in the same order,
-            // which is correct and was correct before -- and the letters only
-            // ever contradicted it. It also takes the last Latin off a Hebrew
-            // page and gives each choice back 34px of line.
+            if (y + DL_LINE_H + 18 > DL_BODY_BOTTOM) break;
+            // A rule above each choice, and one below the last. Ruled lists
+            // are how a paper prints options, and the rules also do the job
+            // the deleted A/B/C markers were supposed to do: they separate
+            // three lines into three things you can point at.
+            ui_canvas().fillRect(DL_MARGIN_X, y, DL_CANVAS_W - 2 * DL_MARGIN_X,
+                                 DL_HAIR, TFT_BLACK);
+            y += DL_HAIR + 9;
             he::draw_line_rtl(he::body(), DL_CANVAS_W - DL_MARGIN_X, y,
                               c.choices[i] ? c.choices[i] : "");
-            y += kChoiceH + kChoiceGap;
+            y += DL_LINE_H + 9;
         }
+        ui_canvas().fillRect(DL_MARGIN_X, y, DL_CANVAS_W - 2 * DL_MARGIN_X,
+                             DL_HAIR, TFT_BLACK);
     }
 
     ui_canvas().endWrite();

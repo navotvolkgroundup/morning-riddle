@@ -42,10 +42,27 @@ extern "C" {
 // separates the paper's identity from the paper's contents. Every other rule
 // here is a hairline; the lead gets 2px. Three weights of rule is how a page
 // says "major, minor, minor" without a second type size.
-#define DL_HDR_RULE_Y   42
-#define DL_HDR_RULE_H    3
+// THE MASTHEAD IS A NAMEPLATE AND A REVERSED BAR, not a line and a rule.
+//
+// The nameplate had the dateline beside it on one line and a 3px rule under
+// both, which is a heading, not a masthead. A paper puts its name alone and
+// then a strip of furniture under it, and reversing that strip -- white type
+// on solid black -- is the single strongest device available on a panel whose
+// black is properly black. It also solved the collision: the name no longer
+// shares a line with anything.
+#define DL_BAR_Y        44      // top of the reversed dateline bar
+#define DL_BAR_H        28
+#define DL_HDR_RULE_Y   DL_BAR_Y            // kept: "below the masthead"
+#define DL_HDR_RULE_H   DL_BAR_H
 #define DL_HAIR          1
 #define DL_LEAD_RULE_H   2
+
+// The boxed weather panel: symbol, temperature, advice. The timetable wraps
+// beside it in what is left, which is what makes the band read as a page
+// rather than as two stacked captions.
+#define DL_WXBOX_W     126
+#define DL_WXBOX_H     104
+#define DL_SCHED_LINES   2
 
 // A wrapped question (two lines, 82) plus three choices (~64 each, 192) is
 // 274. The worst case -- every zone present -- leaves 307, so this fires
@@ -74,19 +91,15 @@ typedef struct {
     bool weather;       // a cached reading exists, stale or not
     bool callout;       // whose turn it is; every day there are kids
     bool birthday;      // rare; a banner, not a takeover
-    int  image_h;       // height of today's picture, 0 for none
 } daily_flags_t;
 
 typedef struct {
     int band_y, band_h;     // hairline-ruled facts band; band_h 0 when empty
-    int schedule_y;
-    int weather_y;
+    int schedule_y;         // first of up to DL_SCHED_LINES wrapped lines
+    int weather_y;          // top of the boxed panel, not a text baseline
     int birthday_label_y;   // "birthday" in small; DL_ABSENT with birthday_y
     int birthday_y;         // the name, in body
     int callout_y;
-    int image_y;            // today's picture, under the masthead; may be ABSENT
-    int image_h;            // 0 when no picture is drawn, including when asked
-                            // for one that would not fit
     int lead_rule_y;        // rule above the lead; always placed
     int riddle_top;         // first y the riddle may use
     int riddle_h;           // riddle_top .. DL_BODY_BOTTOM
@@ -94,6 +107,25 @@ typedef struct {
 
 // Always succeeds. Fields for absent zones are DL_ABSENT.
 void daily_layout(const daily_flags_t *f, daily_layout_t *out);
+
+// Where today's picture goes, or DL_ABSENT for "not today".
+//
+// THE PICTURE FILLS SPACE THE RIDDLE IS NOT USING; IT NEVER TAKES ANY. It used
+// to be a zone under the masthead that pushed everything down, and it worked
+// until the page became a newspaper: the nameplate, the reversed bar and the
+// boxed weather panel between them took 49px, which left a normal school day
+// 45px of picture -- a sliver, not an illustration, and a feature that would
+// have quietly stopped firing.
+//
+// The riddle block is centred in the riddle zone, so on a short-riddle morning
+// there is real slack doing nothing. The picture takes that and the block
+// re-centres in what remains. On a long-riddle morning there is none and there
+// is no picture, which is the right answer twice: a five-line riddle is
+// already the interesting thing on the page.
+//
+// `block_h` is the measured height of the question, choices or answer -- the
+// caller knows it, the layout cannot.
+int daily_image_in_slack(int riddle_top, int riddle_h, int block_h, int image_h);
 
 #ifdef __cplusplus
 }

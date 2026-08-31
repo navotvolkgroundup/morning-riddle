@@ -1131,8 +1131,8 @@ static int test_he_text(void)
 // set is exactly where the awkward combination goes missing.
 static int test_daily_layout(void)
 {
-    daily_flags_t empty = { false, false, false, false, 0 };
-    daily_flags_t full  = { true,  true,  true,  true,  0 };
+    daily_flags_t empty = { false, false, false, false };
+    daily_flags_t full  = { true,  true,  true,  true  };
     daily_layout_t Le, Lf;
     daily_layout(&empty, &Le);
     daily_layout(&full,  &Lf);
@@ -1143,7 +1143,6 @@ static int test_daily_layout(void)
         f.weather  = (bits & 2) != 0;
         f.callout  = (bits & 4) != 0;
         f.birthday = (bits & 8) != 0;
-        f.image_h  = 0;
 
         daily_layout_t L;
         daily_layout(&f, &L);
@@ -1153,7 +1152,10 @@ static int test_daily_layout(void)
         // nothing is suppressed to make things fit.
         CHECK(f.schedule == (L.schedule_y != DL_ABSENT));
         CHECK(f.weather  == (L.weather_y  != DL_ABSENT));
-        CHECK(f.callout  == (L.callout_y  != DL_ABSENT));
+        // A BIRTHDAY REPLACES THE TURN LINE. Both address the reader by name,
+        // and on the one morning a child's name is on the page in red, telling
+        // a different child that today's riddle is theirs is the wrong page.
+        CHECK((f.callout && !f.birthday) == (L.callout_y != DL_ABSENT));
         CHECK(f.birthday == (L.birthday_y != DL_ABSENT));
 
         // The birthday label is placed exactly with the birthday name.
@@ -1177,15 +1179,21 @@ static int test_daily_layout(void)
         CHECK(L.riddle_top + L.riddle_h == DL_BODY_BOTTOM);
         CHECK(L.riddle_top < DL_CANVAS_H);
 
-        // Stacked, not side by side: weather sits a full line below schedule.
-        // The landscape version put them on one line, and this is the
-        // assertion that would have caught carrying that over.
-        if (L.schedule_y != DL_ABSENT && L.weather_y != DL_ABSENT)
-            CHECK(L.weather_y >= L.schedule_y + DL_LINE_H);
+        // SIDE BY SIDE, and this assertion used to say the opposite: "stacked,
+        // not side by side: weather sits a full line below schedule." That was
+        // right while the weather was a line of text -- two text columns on a
+        // 400px panel give each 190px, which will not hold a Hebrew timetable.
+        // The weather is a 126px PANEL now, which leaves the timetable 232px
+        // and two lines to wrap into: more room in total than the single full
+        // width line it used to get.
+        if (L.schedule_y != DL_ABSENT && L.weather_y != DL_ABSENT) {
+            CHECK(L.schedule_y < L.weather_y + DL_WXBOX_H);   // overlapping rows
+            CHECK(L.band_h >= DL_WXBOX_H);                    // band holds the box
+        }
 
         // Order and non-overlap.
-        if (L.birthday_y != DL_ABSENT && L.callout_y != DL_ABSENT)
-            CHECK(L.callout_y >= L.birthday_y + DL_LINE_H);
+        // They can no longer coexist, which is the point of the change.
+        CHECK(!(L.birthday_y != DL_ABSENT && L.callout_y != DL_ABSENT));
         if (L.callout_y != DL_ABSENT)
             CHECK(L.riddle_top >= L.callout_y + DL_LINE_H);
         if (L.birthday_y != DL_ABSENT)
@@ -1201,7 +1209,7 @@ static int test_daily_layout(void)
             }
             if (L.weather_y != DL_ABSENT) {
                 CHECK(L.weather_y >= L.band_y);
-                CHECK(L.weather_y + DL_LINE_H <= L.band_y + L.band_h);
+                CHECK(L.weather_y + DL_WXBOX_H <= L.band_y + L.band_h);
             }
             // Everything below the band clears it. Checking only riddle_top is
             // not enough: the eye-level floor sits below any band this layout
@@ -1235,67 +1243,71 @@ static int test_daily_layout(void)
     CHECK(Le.lead_rule_y == DL_HDR_RULE_Y + DL_HDR_RULE_H + DL_ZONE_GAP);
     CHECK(Le.riddle_top == Le.lead_rule_y + DL_LEAD_RULE_H + 10);
 
-    // A birthday does NOT suppress the callout here -- portrait has the room.
-    daily_flags_t both = { true, true, true, true, 0 };
+    // A BIRTHDAY SUPPRESSES THE TURN LINE, and this assertion used to say the
+    // opposite: "a birthday does NOT suppress the callout here -- portrait has
+    // the room." Portrait does have the room; the page does not want it. Both
+    // lines address the reader by name, and two of those on one morning is one
+    // too many. It also buys back the 47px that made the crowded day the case
+    // nothing else could be fitted into.
+    daily_flags_t both = { true, true, true, true };
     daily_layout_t Lt;
     daily_layout(&both, &Lt);
-    CHECK(Lt.callout_y != DL_ABSENT);
     CHECK(Lt.birthday_y != DL_ABSENT);
+    CHECK(Lt.callout_y == DL_ABSENT);
 
     // Zones must actually push the page down, or a reflow bug that ignored
     // them entirely would still pass everything above.
     CHECK(Lt.riddle_top > Le.riddle_top);
     CHECK(Lt.lead_rule_y > Le.lead_rule_y);
 
-    // ---- today's picture ---------------------------------------------------
+    // ---- today's picture, in the slack -------------------------------------
     //
-    // A picture is the one zone that is nice to have; the timetable, the turn
-    // line and the riddle are not. So it is placed last in priority and first
-    // in position, and it must simply not exist when the page cannot afford
-    // it -- never at the cost of clipping the riddle.
-    daily_flags_t pic = { true, true, true, false, 90 };
-    daily_layout_t Lp;
-    daily_layout(&pic, &Lp);
-    CHECK(Lp.image_y != DL_ABSENT && Lp.image_h == 90);
-    CHECK(Lp.image_y == DL_HDR_RULE_Y + DL_HDR_RULE_H + DL_ZONE_GAP);
-    CHECK(Lp.riddle_h >= DL_RIDDLE_MIN_H);
+    // It fills space the riddle block is not using and never takes any. The
+    // old design gave it a zone under the masthead that pushed everything
+    // down; the newspaper masthead and the boxed weather panel then took 49px
+    // between them and left a normal school day 45px of picture. A sliver is
+    // not an illustration, and a feature that stops firing is worse than one
+    // that was never written.
+    daily_flags_t day = { true, true, true, false };
+    daily_layout_t Ld;
+    daily_layout(&day, &Ld);
 
-    // Everything below it moved down by exactly the picture plus its gap, and
-    // nothing overlaps it.
-    daily_flags_t nopic = pic; nopic.image_h = 0;
-    daily_layout_t Ln2;
-    daily_layout(&nopic, &Ln2);
-    const int cost = 90 + DL_ZONE_GAP;
-    CHECK(Lp.band_y     == Ln2.band_y + cost);
-    CHECK(Lp.schedule_y == Ln2.schedule_y + cost);
-    CHECK(Lp.callout_y  == Ln2.callout_y + cost);
-    CHECK(Lp.riddle_top == Ln2.riddle_top + cost);
-    CHECK(Lp.riddle_h   == Ln2.riddle_h - cost);
-    CHECK(Lp.band_y >= Lp.image_y + Lp.image_h);
+    // A short riddle leaves real slack, and the picture takes it.
+    CHECK(daily_image_in_slack(Ld.riddle_top, Ld.riddle_h, 200, 90) != DL_ABSENT);
+    CHECK(daily_image_in_slack(Ld.riddle_top, Ld.riddle_h, 200, 90)
+          == Ld.riddle_top + DL_ZONE_GAP);
 
-    // THE CROWDED DAY IT MUST DECLINE. Timetable, weather, birthday and turn
-    // line together leave the riddle 307 against a floor of 280, so even the
-    // smallest useful picture cannot be paid for and is dropped without a
-    // word -- correctly, since that morning already has a red banner on it.
-    daily_flags_t crowded = { true, true, true, true, 90 };
-    daily_layout_t Lc;
-    daily_layout(&crowded, &Lc);
-    CHECK(Lc.image_y == DL_ABSENT && Lc.image_h == 0);
-    CHECK(Lc.riddle_h >= DL_RIDDLE_MIN_H);
+    // A block that fills the zone leaves none, and there is no picture. This
+    // is the case the old design got wrong by reserving space up front.
+    CHECK(daily_image_in_slack(Ld.riddle_top, Ld.riddle_h, Ld.riddle_h, 90) == DL_ABSENT);
 
-    // Whatever the flags, asking for a picture never pushes the riddle under
-    // its floor. This is the assertion that makes the zone safe to add to.
+    // The boundary: the picture needs a gap above AND below it, so it fits at
+    // exactly image_h + 2 gaps of slack and not one pixel less.
+    const int need = 90 + 2 * DL_ZONE_GAP;
+    CHECK(daily_image_in_slack(100, 400, 400 - need, 90) != DL_ABSENT);
+    CHECK(daily_image_in_slack(100, 400, 400 - need + 1, 90) == DL_ABSENT);
+
+    // No picture asked for, no picture placed -- and a negative height is a
+    // corrupt strip header, not a request.
+    CHECK(daily_image_in_slack(100, 400, 100, 0) == DL_ABSENT);
+    CHECK(daily_image_in_slack(100, 400, 100, -5) == DL_ABSENT);
+
+    // AND IT NEVER PUSHES THE RIDDLE ANYWHERE. Whatever the zones and whatever
+    // the picture, the riddle keeps its floor, because the picture is no
+    // longer part of that arithmetic at all.
     for (int bits = 0; bits < 16; bits++) {
-        for (int hh = 0; hh <= STRIP_H_MAX; hh += 20) {
-            daily_flags_t g;
-            g.schedule = (bits & 1) != 0; g.weather  = (bits & 2) != 0;
-            g.callout  = (bits & 4) != 0; g.birthday = (bits & 8) != 0;
-            g.image_h  = hh;
-            daily_layout_t Lg;
-            daily_layout(&g, &Lg);
-            CHECK(Lg.riddle_h >= DL_RIDDLE_MIN_H);
-            CHECK(Lg.riddle_top + Lg.riddle_h == DL_BODY_BOTTOM);
-            if (Lg.image_h > 0) CHECK(Lg.lead_rule_y > Lg.image_y + Lg.image_h);
+        daily_flags_t g;
+        g.schedule = (bits & 1) != 0; g.weather  = (bits & 2) != 0;
+        g.callout  = (bits & 4) != 0; g.birthday = (bits & 8) != 0;
+        daily_layout_t Lg;
+        daily_layout(&g, &Lg);
+        CHECK(Lg.riddle_h >= DL_RIDDLE_MIN_H);
+        for (int hh = 0; hh <= STRIP_H_MAX; hh += 8) {
+            const int iy = daily_image_in_slack(Lg.riddle_top, Lg.riddle_h, 200, hh);
+            if (iy != DL_ABSENT) {
+                CHECK(iy >= Lg.riddle_top);
+                CHECK(iy + hh <= Lg.riddle_top + Lg.riddle_h);
+            }
         }
     }
 
