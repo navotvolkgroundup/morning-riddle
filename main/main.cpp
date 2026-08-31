@@ -528,7 +528,14 @@ extern "C" void app_main(void)
         c.answer      = r.a;
         c.why         = r.why;
         c.kind        = r.kind;
-        c.show_answer = (act == ACT_SHOW_ANSWER);
+        // THE STATE SAYS WHAT IS ON THE PAGE; THE ACTION ONLY SAYS WHETHER TO
+        // REDRAW IT. This read the action, which is the same thing right up
+        // until a redraw is triggered by something other than the state
+        // machine. Mixing the build hash into the redraw fingerprint made that
+        // routine: a reflash at 17:00 on a day already revealed came back
+        // ACT_NONE, and the page dutifully drew the question and three
+        // choices over an answer the children had already seen.
+        c.show_answer = (st.state == RS_ANSWER_SHOWN);
         ESP_LOGI(TAG, "riddle %u of %d, choices=%d, reveal=%d",
                  (unsigned)st.idx, s_batch.count, (int)r.has_choices,
                  (int)c.show_answer);
