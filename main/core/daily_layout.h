@@ -72,8 +72,9 @@ extern "C" {
 typedef struct {
     bool schedule;      // today has subjects (weekends usually do not)
     bool weather;       // a cached reading exists, stale or not
-    bool callout;       // fires about one day in three
+    bool callout;       // whose turn it is; every day there are kids
     bool birthday;      // rare; a banner, not a takeover
+    int  image_h;       // height of today's picture, 0 for none
 } daily_flags_t;
 
 typedef struct {
@@ -83,6 +84,9 @@ typedef struct {
     int birthday_label_y;   // "birthday" in small; DL_ABSENT with birthday_y
     int birthday_y;         // the name, in body
     int callout_y;
+    int image_y;            // today's picture, under the masthead; may be ABSENT
+    int image_h;            // 0 when no picture is drawn, including when asked
+                            // for one that would not fit
     int lead_rule_y;        // rule above the lead; always placed
     int riddle_top;         // first y the riddle may use
     int riddle_h;           // riddle_top .. DL_BODY_BOTTOM

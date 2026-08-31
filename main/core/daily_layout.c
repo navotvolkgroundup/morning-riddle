@@ -13,16 +13,33 @@ void daily_layout(const daily_flags_t *f, daily_layout_t *out)
 {
     if (!out) return;
 
-    daily_flags_t none = { false, false, false, false };
+    daily_flags_t none = { false, false, false, false, 0 };
     if (!f) f = &none;
 
     out->band_y           = DL_HDR_RULE_Y + DL_HDR_RULE_H + DL_ZONE_GAP;
     out->band_h           = 0;
+    out->image_y          = DL_ABSENT;
+    out->image_h          = 0;
     out->schedule_y       = DL_ABSENT;
     out->weather_y        = DL_ABSENT;
     out->birthday_label_y = DL_ABSENT;
     out->birthday_y       = DL_ABSENT;
     out->callout_y        = DL_ABSENT;
+
+    // TODAY'S PICTURE, DIRECTLY UNDER THE MASTHEAD, and only if the rest of
+    // the page can still be drawn around it.
+    //
+    // A picture is the one zone here that is nice to have. Everything below it
+    // is not: the timetable is what a child checks before leaving, the turn
+    // line is who the morning belongs to, and the riddle is the point. So the
+    // picture is placed LAST in priority and FIRST in position -- it takes the
+    // top of the page when there is room and silently does not exist when
+    // there is not, which on a birthday with a timetable and a turn line is
+    // most of the time.
+    //
+    // The fit test is run against the finished layout further down, so this
+    // records the intent and the decision is made once, at the end.
+    const int want_image = (f->image_h > 0) ? f->image_h : 0;
 
     // Schedule above weather, stacked. Side by side would give each 190px on a
     // 400-wide panel, which is not enough for a Hebrew timetable line.
@@ -68,4 +85,25 @@ void daily_layout(const daily_flags_t *f, daily_layout_t *out)
 
     out->riddle_top = y;
     out->riddle_h   = DL_BODY_BOTTOM - y;
+
+    // Now decide the picture. It costs its own height plus a gap, and it is
+    // affordable exactly when the riddle still clears its floor afterwards.
+    // Everything below the masthead shifts down by that amount, so this is one
+    // addition applied to every zone rather than a second layout pass.
+    if (want_image > 0) {
+        const int cost = want_image + DL_ZONE_GAP;
+        if (out->riddle_h - cost >= DL_RIDDLE_MIN_H) {
+            out->image_y = DL_HDR_RULE_Y + DL_HDR_RULE_H + DL_ZONE_GAP;
+            out->image_h = want_image;
+            out->band_y += cost;
+            if (out->schedule_y       != DL_ABSENT) out->schedule_y       += cost;
+            if (out->weather_y        != DL_ABSENT) out->weather_y        += cost;
+            if (out->birthday_label_y != DL_ABSENT) out->birthday_label_y += cost;
+            if (out->birthday_y       != DL_ABSENT) out->birthday_y       += cost;
+            if (out->callout_y        != DL_ABSENT) out->callout_y        += cost;
+            out->lead_rule_y += cost;
+            out->riddle_top  += cost;
+            out->riddle_h    -= cost;
+        }
+    }
 }

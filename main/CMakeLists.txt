@@ -11,6 +11,7 @@ idf_component_register(
         "core/he_text.c"
         "core/riddle_batch.c"
         "core/formdata.c"
+        "core/strip.c"
         "ui/hebrew.cpp"
         "ui/page_daily.cpp"
         "ui/gfx_target.cpp"
@@ -21,6 +22,7 @@ idf_component_register(
         "board/net.cpp"
         "board/portal.cpp"
         "board/batch.cpp"
+        "board/strip_fetch.cpp"
         "board/sdconfig.cpp"
         "board/wx.cpp"
     INCLUDE_DIRS

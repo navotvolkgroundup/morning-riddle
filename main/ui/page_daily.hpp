@@ -18,6 +18,7 @@ extern "C" {
 #include "daily_layout.h"
 #include "kids.h"
 #include "riddle_batch.h"
+#include "strip.h"
 #include "schedule.h"
 #include "weather.h"
 }
@@ -57,6 +58,10 @@ struct page_daily_content {
     // reveal exactly as it did before. It is the difference between a riddle
     // that teaches something and a quiz a child got wrong.
     const char     *why;
+
+    // Today's picture, or null. The layout declines it on days that cannot
+    // afford the height; see daily_layout.c.
+    const strip_t  *image;
 
     // What kind of thing today is (riddle_kind_e). Draws a small standing head
     // above the lead so a joke is not read as a riddle nobody can solve.

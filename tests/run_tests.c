@@ -14,6 +14,7 @@
 #include "riddle_decide.h"
 #include "wake_log.h"
 #include "kids.h"
+#include "strip.h"
 #include "weather.h"
 #include "schedule.h"
 #include "sd_json.h"
@@ -1065,8 +1066,8 @@ static int test_he_text(void)
 // set is exactly where the awkward combination goes missing.
 static int test_daily_layout(void)
 {
-    daily_flags_t empty = { false, false, false, false };
-    daily_flags_t full  = { true,  true,  true,  true  };
+    daily_flags_t empty = { false, false, false, false, 0 };
+    daily_flags_t full  = { true,  true,  true,  true,  0 };
     daily_layout_t Le, Lf;
     daily_layout(&empty, &Le);
     daily_layout(&full,  &Lf);
@@ -1077,6 +1078,7 @@ static int test_daily_layout(void)
         f.weather  = (bits & 2) != 0;
         f.callout  = (bits & 4) != 0;
         f.birthday = (bits & 8) != 0;
+        f.image_h  = 0;
 
         daily_layout_t L;
         daily_layout(&f, &L);
@@ -1169,7 +1171,7 @@ static int test_daily_layout(void)
     CHECK(Le.riddle_top == Le.lead_rule_y + DL_LEAD_RULE_H + 10);
 
     // A birthday does NOT suppress the callout here -- portrait has the room.
-    daily_flags_t both = { true, true, true, true };
+    daily_flags_t both = { true, true, true, true, 0 };
     daily_layout_t Lt;
     daily_layout(&both, &Lt);
     CHECK(Lt.callout_y != DL_ABSENT);
@@ -1179,6 +1181,58 @@ static int test_daily_layout(void)
     // them entirely would still pass everything above.
     CHECK(Lt.riddle_top > Le.riddle_top);
     CHECK(Lt.lead_rule_y > Le.lead_rule_y);
+
+    // ---- today's picture ---------------------------------------------------
+    //
+    // A picture is the one zone that is nice to have; the timetable, the turn
+    // line and the riddle are not. So it is placed last in priority and first
+    // in position, and it must simply not exist when the page cannot afford
+    // it -- never at the cost of clipping the riddle.
+    daily_flags_t pic = { true, true, true, false, 90 };
+    daily_layout_t Lp;
+    daily_layout(&pic, &Lp);
+    CHECK(Lp.image_y != DL_ABSENT && Lp.image_h == 90);
+    CHECK(Lp.image_y == DL_HDR_RULE_Y + DL_HDR_RULE_H + DL_ZONE_GAP);
+    CHECK(Lp.riddle_h >= DL_RIDDLE_MIN_H);
+
+    // Everything below it moved down by exactly the picture plus its gap, and
+    // nothing overlaps it.
+    daily_flags_t nopic = pic; nopic.image_h = 0;
+    daily_layout_t Ln2;
+    daily_layout(&nopic, &Ln2);
+    const int cost = 90 + DL_ZONE_GAP;
+    CHECK(Lp.band_y     == Ln2.band_y + cost);
+    CHECK(Lp.schedule_y == Ln2.schedule_y + cost);
+    CHECK(Lp.callout_y  == Ln2.callout_y + cost);
+    CHECK(Lp.riddle_top == Ln2.riddle_top + cost);
+    CHECK(Lp.riddle_h   == Ln2.riddle_h - cost);
+    CHECK(Lp.band_y >= Lp.image_y + Lp.image_h);
+
+    // THE CROWDED DAY IT MUST DECLINE. Timetable, weather, birthday and turn
+    // line together leave the riddle 307 against a floor of 280, so even the
+    // smallest useful picture cannot be paid for and is dropped without a
+    // word -- correctly, since that morning already has a red banner on it.
+    daily_flags_t crowded = { true, true, true, true, 90 };
+    daily_layout_t Lc;
+    daily_layout(&crowded, &Lc);
+    CHECK(Lc.image_y == DL_ABSENT && Lc.image_h == 0);
+    CHECK(Lc.riddle_h >= DL_RIDDLE_MIN_H);
+
+    // Whatever the flags, asking for a picture never pushes the riddle under
+    // its floor. This is the assertion that makes the zone safe to add to.
+    for (int bits = 0; bits < 16; bits++) {
+        for (int hh = 0; hh <= STRIP_H_MAX; hh += 20) {
+            daily_flags_t g;
+            g.schedule = (bits & 1) != 0; g.weather  = (bits & 2) != 0;
+            g.callout  = (bits & 4) != 0; g.birthday = (bits & 8) != 0;
+            g.image_h  = hh;
+            daily_layout_t Lg;
+            daily_layout(&g, &Lg);
+            CHECK(Lg.riddle_h >= DL_RIDDLE_MIN_H);
+            CHECK(Lg.riddle_top + Lg.riddle_h == DL_BODY_BOTTOM);
+            if (Lg.image_h > 0) CHECK(Lg.lead_rule_y > Lg.image_y + Lg.image_h);
+        }
+    }
 
     // NULL flags behave as the empty page.
     daily_layout_t Ln;
@@ -1325,6 +1379,64 @@ static int test_formdata(void)
     return 0;
 }
 
+static int test_strip(void)
+{
+    // A 400x4 strip: header plus 200 bytes a row.
+    const size_t stride = STRIP_W / 2;
+    static uint8_t buf[STRIP_HDR_BYTES + (STRIP_W / 2) * 4];
+    memcpy(buf, STRIP_MAGIC, 4);
+    buf[4] = STRIP_W & 0xFF; buf[5] = (STRIP_W >> 8) & 0xFF;
+    buf[6] = 4;              buf[7] = 0;
+    for (size_t i = STRIP_HDR_BYTES; i < sizeof buf; i++) buf[i] = 0x23;  // RED, YELLOW
+
+    strip_t s;
+    CHECK(strip_parse(buf, sizeof buf, &s));
+    CHECK(s.w == STRIP_W && s.h == 4 && s.stride == stride);
+
+    // High nibble is the LEFT pixel. Getting this backwards mirrors the
+    // picture, which on an illustration is a bug nobody would call a bug.
+    CHECK(strip_at(&s, 0, 0) == STRIP_RED);
+    CHECK(strip_at(&s, 1, 0) == STRIP_YELLOW);
+    CHECK(strip_at(&s, STRIP_W - 1, 3) == STRIP_YELLOW);
+
+    // Out of range paints paper rather than indexing off the buffer, so a
+    // drawing loop that runs one pixel long is a cosmetic bug, not a crash.
+    CHECK(strip_at(&s, -1, 0) == STRIP_WHITE);
+    CHECK(strip_at(&s, STRIP_W, 0) == STRIP_WHITE);
+    CHECK(strip_at(&s, 0, 4) == STRIP_WHITE);
+    CHECK(strip_at(&s, 0, -1) == STRIP_WHITE);
+    CHECK(strip_at(NULL, 0, 0) == STRIP_WHITE);
+
+    // TRUNCATION IS THE FAILURE THAT MATTERS. A morning fetch that drops
+    // halfway through is a valid header over half an image, and drawing it
+    // paints garbage across the top of the page for a whole day.
+    CHECK(!strip_parse(buf, sizeof buf - 1, &s));
+    CHECK(!strip_parse(buf, STRIP_HDR_BYTES, &s));
+    CHECK(!strip_parse(buf, 0, &s));
+
+    // Nothing else gets drawn either.
+    uint8_t bad[sizeof buf];
+    memcpy(bad, buf, sizeof bad);
+    bad[0] = 'X';                       CHECK(!strip_parse(bad, sizeof bad, &s));
+    memcpy(bad, buf, sizeof bad);
+    bad[4] = 0x91; bad[5] = 0x01;       CHECK(!strip_parse(bad, sizeof bad, &s));  // 401, not the panel
+    memcpy(bad, buf, sizeof bad);
+    bad[6] = 0;                         CHECK(!strip_parse(bad, sizeof bad, &s));  // zero height
+    memcpy(bad, buf, sizeof bad);
+    bad[6] = STRIP_H_MAX + 1;           CHECK(!strip_parse(bad, sizeof bad, &s));
+    CHECK(!strip_parse(NULL, 100, &s));
+    CHECK(!strip_parse(buf, sizeof buf, NULL));
+
+    // A rejected parse must leave the caller's strip untouched, so a bad
+    // fetch cannot half-overwrite the one already on the page.
+    strip_t good = s;
+    CHECK(strip_parse(buf, sizeof buf, &good));
+    strip_t keep = good;
+    CHECK(!strip_parse(buf, 12, &good));
+    CHECK(memcmp(&good, &keep, sizeof good) == 0);
+    return 0;
+}
+
 int main(void)
 {
     struct { const char *name; int (*fn)(void); } tests[] = {
@@ -1351,6 +1463,7 @@ int main(void)
         { "he_text",           test_he_text },
         { "riddle_batch",      test_riddle_batch },
         { "formdata",          test_formdata },
+        { "strip",             test_strip },
     };
     for (unsigned i = 0; i < sizeof tests / sizeof tests[0]; i++) {
         if (tests[i].fn()) {

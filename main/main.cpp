@@ -29,12 +29,21 @@ extern "C" {
 #include "net.hpp"
 #include "portal.hpp"
 #include "batch.hpp"
+#include "strip_fetch.hpp"
 #include "sdconfig.hpp"
 #include "wx.hpp"
 
 static const char *TAG = "riddle";
 
 static riddle_batch_t s_batch;
+
+// Today's picture. In .bss rather than on the stack or the heap: it is 18KB,
+// it is written once a day, and a static buffer cannot fragment or fail to
+// allocate on the one path that has to work every morning.
+static uint8_t s_strip_buf[STRIP_MAX_BYTES];
+static strip_t s_strip;
+static bool    s_have_strip = false;
+static bool    s_radio_up   = false;
 
 extern "C" void app_main(void)
 {
@@ -341,7 +350,18 @@ extern "C" void app_main(void)
             static riddle_batch_t fetched;
             if (batch_fetch(&fetched) > 0) s_batch = fetched;
             wx_fetch(&wx, (uint32_t)time(nullptr));
-            net_stop();
+
+            // THE RADIO STAYS UP PAST THE STATE MACHINE, for one reason:
+            // today's picture is fetched by riddle index, and only
+            // riddle_decide knows which index today lands on. The first cut
+            // predicted it here and was wrong twice over -- a double-fire
+            // morning redraws the SAME riddle rather than advancing, and
+            // weekend selection can skip several items. A picture belonging to
+            // a different riddle is worse than no picture.
+            //
+            // The cost is a few hundred milliseconds of radio on a wake that
+            // is already spending seventeen seconds on the panel.
+            s_radio_up = true;
         }
     }
 
@@ -374,7 +394,7 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "core linked: schedule_weekday(20692) = %d (expect 4)", wd);
 
     daily_layout_t L;
-    daily_flags_t f = { false, false, false, false };
+    daily_flags_t f = { false, false, false, false, 0 };
     daily_layout(&f, &L);
     // Layout and panel must agree. They disagreed once, silently, because the
     // geometry was built for the product name's 600x400 rather than the
@@ -439,6 +459,19 @@ extern "C" void app_main(void)
              (long)st.day);
 
 
+    // NOW the index is settled, so the picture can be fetched for the riddle
+    // that is actually going up. It cannot be cached -- the NVS partition is
+    // 24KB and the batch already fills most of it -- so no network in the
+    // morning means no picture, which degrades exactly the way the weather
+    // does, and the page draws as it did before pictures existed.
+    if (s_radio_up) {
+        if (s_batch.count > 0 && st.idx < s_batch.count)
+            s_have_strip = strip_fetch((int)st.idx, s_strip_buf,
+                                       sizeof s_strip_buf, &s_strip);
+        net_stop();
+        s_radio_up = false;
+    }
+
     page_daily_content c = {};
     static char datebuf[8];
     // The %% 100 is not paranoia about the calendar: without it the compiler
@@ -457,6 +490,10 @@ extern "C" void app_main(void)
     c.today      = in.today;
     c.month      = lt.tm_mon + 1; c.day = lt.tm_mday;
     c.now_utc    = (uint32_t)now_t;
+    // Only if the fetch landed on the item actually being drawn: the peek
+    // above predicts the next index, and a double-fire morning redraws the
+    // SAME riddle rather than advancing, so the prediction can be one ahead.
+    c.image      = s_have_strip ? &s_strip : nullptr;
     if (s_batch.count > 0 && st.idx < s_batch.count) {
         const riddle_item_t &r = s_batch.item[st.idx];
         c.question    = r.q;

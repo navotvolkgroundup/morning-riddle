@@ -24,6 +24,7 @@ SRC := tests/run_tests.c $(CORE)/riddle_decide.c $(CORE)/wake_log.c \
        $(CORE)/kids.c $(CORE)/weather.c $(CORE)/schedule.c \
        $(CORE)/sd_json.c $(CORE)/daily_layout.c \
        $(CORE)/he_text.c $(CORE)/riddle_batch.c $(CORE)/formdata.c \
+       $(CORE)/strip.c \
        $(CJSON_DIR)/cJSON.c
 HDR := $(wildcard $(CORE)/*.h)
 

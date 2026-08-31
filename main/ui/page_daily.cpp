@@ -141,6 +141,7 @@ void page_daily_draw(const page_daily_content &c)
     f.weather  = c.wx && c.wx->fetched_at != 0;
     f.callout  = c.turn_kid >= 0 && c.kids && c.turn_kid < c.kids->count;
     f.birthday = c.kids && kids_birthday_on(c.kids, c.month, c.day) >= 0;
+    f.image_h  = c.image ? (int)c.image->h : 0;
 
     daily_layout_t L;
     daily_layout(&f, &L);
@@ -149,6 +150,29 @@ void page_daily_draw(const page_daily_content &c)
     ui_canvas().fillScreen(TFT_WHITE);
 
     draw_header(c);
+
+    // TODAY'S PICTURE, if the layout could afford one. Six colours, which is
+    // the whole gamut and the first time this page has used more than two.
+    //
+    // Drawn a pixel at a time into the RAM canvas. That is 36,000 drawPixel
+    // calls for a 400x90 strip, which sounds careless and costs single-digit
+    // milliseconds against a panel refresh of seventeen seconds; a row-packing
+    // optimisation here would be measuring the wrong thing.
+    if (L.image_h > 0 && c.image) {
+        static const uint32_t kInk[STRIP_INK_COUNT] = {
+            TFT_BLACK, TFT_WHITE, TFT_RED, TFT_YELLOW, TFT_BLUE, TFT_GREEN,
+        };
+        for (int row = 0; row < L.image_h; row++) {
+            for (int x = 0; x < STRIP_W; x++) {
+                const uint8_t ink = strip_at(c.image, x, row);
+                // White is the page. Skipping it is not an optimisation, it is
+                // what lets an illustration sit on the paper rather than in a
+                // box -- the canvas is already white.
+                if (ink == STRIP_WHITE) continue;
+                ui_canvas().drawPixel(x, L.image_y + row, kInk[ink]);
+            }
+        }
+    }
 
     // RULES, NOT A BOX. A bordered rectangle around the timetable and the
     // weather made them look like a form to be filled in; two hairlines make
