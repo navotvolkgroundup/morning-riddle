@@ -172,6 +172,9 @@ esp_err_t post_save(httpd_req_t *r)
         got += n;
     }
     g_body[got] = '\0';
+    ESP_LOGW(TAG, "POST: content_len=%d, read=%d, buffer=%d%s",
+             (int)r->content_len, got, (int)sizeof g_body,
+             ((int)r->content_len > (int)sizeof g_body - 1) ? "  <-- TRUNCATED" : "");
 
     // ---- WiFi. Blank SSID means "leave what is stored alone" -------------
     char ssid[33] = {}, pass[65] = {};
@@ -235,7 +238,10 @@ esp_err_t post_save(httpd_req_t *r)
         for (int d = 0; d < SCHED_DAYS; d++) {
             char key[4];
             std::snprintf(key, sizeof key, "d%d", d);
-            form_field(g_body, key, sc.line[d], sizeof sc.line[d]);
+            const bool found = form_field(g_body, key, sc.line[d], sizeof sc.line[d]);
+            ESP_LOGW(TAG, "  %s (%s): %s, %d bytes \"%s\"", kDayName[d], key,
+                     found ? "found" : "ABSENT", (int)std::strlen(sc.line[d]),
+                     sc.line[d]);
         }
         *g_sched = sc;
         sdconfig_store_schedule(&sc);
